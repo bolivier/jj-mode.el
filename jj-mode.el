@@ -43,7 +43,7 @@
     (define-key map (kbd "e") 'jj-edit-changeset)
     (define-key map (kbd "u") 'jj-undo)
     (define-key map (kbd "N") 'jj-new)
-    (define-key map (kbd "s") 'jj-squash)
+    (define-key map (kbd "s") 'jj-squash-transient)
     (define-key map (kbd "c") 'jj-commit)
     (define-key map (kbd "d") 'jj-describe)
     (define-key map (kbd "a") 'jj-abandon)
@@ -66,7 +66,9 @@
   :group 'jj
   (setq-local revert-buffer-function 'jj-log-refresh)
   ;; Clear rebase selections when buffer is killed
-  (add-hook 'kill-buffer-hook 'jj-rebase-clear-selections nil t))
+  (add-hook 'kill-buffer-hook 'jj-rebase-clear-selections nil t)
+  ;; Clear squash selections when buffer is killed
+  (add-hook 'kill-buffer-hook 'jj-squash-clear-selections nil t))
 
 (defun jj--debug (format-string &rest args)
   "Log debug message if jj-debug is enabled."
@@ -342,32 +344,6 @@
             :author-date author-date
             :description desc
             :bookmarks bookmarks))))
-
-(defun jj-log-insert-commits ()
-  "Insert jj log commits into current buffer."
-  (let* ((log-output (jj--run-command "log"
-                                      "--no-graph"
-                                      "--template" "change_id.shortest() ++ \" \" ++ if(bookmarks, bookmarks.join(\", \") ++ \" \", \"\") ++ author.name() ++ \" \" ++ author.timestamp().ago() ++ \" | \" ++ if(description, description.first_line(), \"(no description)\")"))
-         (lines (split-string log-output "\n" t)))
-    (when lines
-      (magit-insert-section (jj-commits-section)
-        (magit-insert-heading "Recent Commits")
-        (dolist (line lines)
-          (when-let ((commit-data (jj--parse-log-line line)))
-            (magit-insert-section section (jj-commit-section)
-                                  (oset section commit-id (plist-get commit-data :id))
-                                  (oset section description (plist-get commit-data :description))
-                                  (insert (propertize (format "%-8s" (plist-get commit-data :id))
-                                                      'face 'magit-hash))
-                                  (when (plist-get commit-data :bookmarks)
-                                    (insert (propertize (plist-get commit-data :bookmarks)
-                                                        'face 'magit-bookmark-local) " "))
-                                  (insert (propertize (plist-get commit-data :author-date)
-                                                      'face 'magit-log-author))
-                                  (insert " ")
-                                  (insert (propertize (plist-get commit-data :description)
-                                                      'face 'magit-section-highlight))
-                                  (insert "\n"))))))))
 
 (defun jj--parse-log-graph-line (line)
   "Parse LINE from jj log output to extract changeset info."
@@ -771,15 +747,208 @@
                                      "Failed to edit commit")
           (jj-log-refresh)))))
 
-(defun jj-squash ()
-  "Squash commits."
+;; Squash state management
+(defvar-local jj-squash-from nil
+  "Currently selected 'from' commit for squash.")
+
+(defvar-local jj-squash-into nil
+  "Currently selected 'into' commit for squash.")
+
+(defvar-local jj-squash-from-overlay nil
+  "Overlay for highlighting the selected 'from' commit.")
+
+(defvar-local jj-squash-into-overlay nil
+  "Overlay for highlighting the selected 'into' commit.")
+
+;;;###autoload
+(defun jj-squash-clear-selections ()
+  "Clear all squash selections and overlays."
   (interactive)
-  (when-let ((commit-id (jj-get-changeset-at-point)))
-    (let ((result (jj--run-command "squash" "-r" commit-id)))
-      (if (jj--handle-command-result (list "squash" "-r" commit-id) result
-                                     (format "Squashed commit %s" commit-id)
-                                     "Failed to squash commit")
-          (jj-log-refresh)))))
+  (setq jj-squash-from nil
+        jj-squash-into nil)
+  (when jj-squash-from-overlay
+    (delete-overlay jj-squash-from-overlay)
+    (setq jj-squash-from-overlay nil))
+  (when jj-squash-into-overlay
+    (delete-overlay jj-squash-into-overlay)
+    (setq jj-squash-into-overlay nil))
+  (message "Cleared all squash selections"))
+
+;;;###autoload
+(defun jj-squash-set-from ()
+  "Set the commit at point as squash `from' source."
+  (interactive)
+  (when-let ((commit-id (jj-get-changeset-at-point))
+             (section (magit-current-section)))
+    ;; Clear previous from overlay
+    (when jj-squash-from-overlay
+      (delete-overlay jj-squash-from-overlay))
+    ;; Set new from
+    (setq jj-squash-from commit-id)
+    ;; Create overlay for visual indication
+    (setq jj-squash-from-overlay
+          (make-overlay (oref section start) (oref section end)))
+    (overlay-put jj-squash-from-overlay 'face '(:background "dark orange" :foreground "white"))
+    (overlay-put jj-squash-from-overlay 'before-string "[FROM] ")
+    (message "Set from: %s" commit-id)))
+
+;;;###autoload
+(defun jj-squash-set-into ()
+  "Set the commit at point as squash 'into' destination."
+  (interactive)
+  (when-let ((commit-id (jj-get-changeset-at-point))
+             (section (magit-current-section)))
+    ;; Clear previous into overlay
+    (when jj-squash-into-overlay
+      (delete-overlay jj-squash-into-overlay))
+    ;; Set new into
+    (setq jj-squash-into commit-id)
+    ;; Create overlay for visual indication
+    (setq jj-squash-into-overlay
+          (make-overlay (oref section start) (oref section end)))
+    (overlay-put jj-squash-into-overlay 'face '(:background "dark cyan" :foreground "white"))
+    (overlay-put jj-squash-into-overlay 'before-string "[INTO] ")
+    (message "Set into: %s" commit-id)))
+
+;;;###autoload
+(defun jj-squash-execute (&optional args)
+  "Execute squash with selected from and into commits."
+  (interactive (list (transient-args 'jj-squash-transient--internal)))
+  (let ((keep-commit (member "--keep" args)))
+    (cond
+     ;; Both from and into selected
+     ((and jj-squash-from jj-squash-into)
+      (let* ((into-desc (string-trim (jj--run-command "log" "-r" jj-squash-into "--no-graph" "-T" "description")))
+             (from-desc (string-trim (jj--run-command "log" "-r" jj-squash-from "--no-graph" "-T" "description")))
+             (combined-desc (if (string-empty-p into-desc)
+                                from-desc
+                              into-desc))) ; Keep into message by default
+        (jj--open-message-buffer "SQUASH_MSG"
+                                 (format "jj squash --from %s --into %s" jj-squash-from jj-squash-into)
+                                 'jj--squash-finish
+                                 (list :from jj-squash-from :into jj-squash-into :keep keep-commit)
+                                 combined-desc)))
+     ;; Only from selected - use default behavior (squash into parent)
+     (jj-squash-from
+      (let* ((parent-desc (string-trim (jj--run-command "log" "-r" (format "%s-" jj-squash-from) "--no-graph" "-T" "description")))
+             (from-desc (string-trim (jj--run-command "log" "-r" jj-squash-from "--no-graph" "-T" "description")))
+             (combined-desc (if (string-empty-p parent-desc)
+                                from-desc
+                              parent-desc))) ; Keep parent message by default
+        (jj--open-message-buffer "SQUASH_MSG"
+                                 (format "jj squash -r %s" jj-squash-from)
+                                 'jj--squash-finish
+                                 (list :from jj-squash-from :into nil :keep keep-commit)
+                                 combined-desc)))
+     ;; No selection - use commit at point
+     (t
+      (if-let ((commit-id (jj-get-changeset-at-point)))
+          (let* ((parent-desc (string-trim (jj--run-command "log" "-r" (format "%s-" commit-id) "--no-graph" "-T" "description")))
+                 (commit-desc (string-trim (jj--run-command "log" "-r" commit-id "--no-graph" "-T" "description")))
+                 (combined-desc (if (string-empty-p parent-desc)
+                                    commit-desc
+                                  parent-desc))) ; Keep parent message by default
+            (jj--open-message-buffer "SQUASH_MSG"
+                                     (format "jj squash -r %s" commit-id)
+                                     'jj--squash-finish
+                                     (list :from commit-id :into nil :keep keep-commit)
+                                     combined-desc))
+        (jj--message-with-log "No commit selected for squash"))))))
+
+(defun jj--do-squash (from into keep-commit message)
+  "Perform the actual squash operation."
+  (let* ((cmd-args (cond
+                    ;; Both from and into specified
+                    ((and from into)
+                     (append (list "squash" "--from" from "--into" into)
+                             (when keep-commit (list "--keep-emptied"))
+                             (when message (list "-m" message))))
+                    ;; Only from specified (squash into parent)
+                    (from
+                     (append (list "squash" "-r" from)
+                             (when keep-commit (list "--keep-emptied"))
+                             (when message (list "-m" message))))
+                    (t nil)))
+         (progress-msg (if into
+                           (format "Squashing %s into %s" from into)
+                         (format "Squashing %s into its parent" from)))
+         (success-msg (if into
+                          (format "Squashed %s into %s" from into)
+                        (format "Squashed %s into its parent" from))))
+    (when cmd-args
+      (jj--message-with-log "%s..." progress-msg)
+      (let ((result (apply #'jj--run-command cmd-args)))
+        (if (jj--handle-command-result cmd-args result success-msg "Squash failed")
+            (progn
+              (jj-squash-clear-selections)
+              (jj-log-refresh)))))))
+
+(defun jj--squash-finish (message &optional squash-params)
+  "Finish squash with MESSAGE and SQUASH-PARAMS."
+  (when squash-params
+    (let ((from (plist-get squash-params :from))
+          (into (plist-get squash-params :into))
+          (keep (plist-get squash-params :keep)))
+      (jj--do-squash from into keep message))))
+
+(defun jj-squash-cleanup-on-exit ()
+  "Clean up squash selections when transient exits."
+  (jj-squash-clear-selections)
+  (remove-hook 'transient-exit-hook 'jj-squash-cleanup-on-exit t))
+
+;; Squash transient menu
+;;;###autoload
+(defun jj-squash-transient ()
+  "Transient for jj squash operations."
+  (interactive)
+  ;; Add cleanup hook for when transient exits
+  (add-hook 'transient-exit-hook 'jj-squash-cleanup-on-exit nil t)
+  (jj-squash-transient--internal))
+
+(transient-define-prefix jj-squash-transient--internal ()
+  "Internal transient for jj squash operations."
+  :transient-suffix 'transient--do-exit
+  :transient-non-suffix 'transient--do-warn
+  [:description
+   (lambda ()
+     (concat "JJ Squash"
+             (when jj-squash-from
+               (format " | From: %s" jj-squash-from))
+             (when jj-squash-into
+               (format " | Into: %s" jj-squash-into))))
+   ["Selection"
+    ("f" "Set from" jj-squash-set-from
+     :description (lambda ()
+                    (if jj-squash-from
+                        (format "Set from (current: %s)" jj-squash-from)
+                      "Set from"))
+     :transient t)
+    ("t" "Set into" jj-squash-set-into
+     :description (lambda ()
+                    (if jj-squash-into
+                        (format "Set into (current: %s)" jj-squash-into)
+                      "Set into"))
+     :transient t)
+    ("c" "Clear selections" jj-squash-clear-selections
+     :transient t)]
+   ["Options"
+    ("-k" "Keep emptied commit" "--keep")]
+   ["Actions"
+    ("s" "Execute squash" jj-squash-execute
+     :description (lambda ()
+                    (cond
+                     ((and jj-squash-from jj-squash-into)
+                      (format "Squash %s into %s" jj-squash-from jj-squash-into))
+                     (jj-squash-from
+                      (format "Squash %s into parent" jj-squash-from))
+                     (t "Execute squash (select commits first)")))
+     :transient nil)
+    ("n" "Next" jj-goto-next-changeset
+     :transient t)
+    ("p" "Prev" jj-goto-prev-changeset
+     :transient t)
+    ("q" "Quit" transient-quit-one)]])
+
 
 (defun jj-bookmark-create ()
   "Create a new bookmark."
@@ -1119,16 +1288,16 @@
      (t nil))))
 
 ;; Rebase state management
-(defvar jj-rebase-source nil
+(defvar-local jj-rebase-source nil
   "Currently selected source commit for rebase.")
 
-(defvar jj-rebase-destinations nil
+(defvar-local jj-rebase-destinations nil
   "List of currently selected destination commits for rebase.")
 
-(defvar jj-rebase-source-overlay nil
+(defvar-local jj-rebase-source-overlay nil
   "Overlay for highlighting the selected source commit.")
 
-(defvar jj-rebase-destination-overlays nil
+(defvar-local jj-rebase-destination-overlays nil
   "List of overlays for highlighting selected destination commits.")
 
 ;;;###autoload
