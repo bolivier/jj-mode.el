@@ -569,11 +569,7 @@
      ((and section
            (eq (oref section type) 'jj-file-section)
            (slot-boundp section 'file))
-      (jj-visit-file))
-
-     ;; Default - show commit details (old behavior)
-     (t
-      (jj-log-visit-commit)))))
+      (jj-visit-file)))))
 
 (defun jj-edit-changeset-at-point ()
   "Edit the commit at point using jj edit."
@@ -759,24 +755,6 @@
   "Get list of files with changes in working copy."
   (let ((diff-output (jj--run-command "diff" "--name-only")))
     (split-string diff-output "\n" t)))
-
-(defun jj-log-visit-commit ()
-  "Show details of commit at point."
-  (interactive)
-  (when-let* ((section (magit-current-section))
-              (commit-id (or (and (eq (oref section type) 'jj-commit-section)
-                                  (oref section commit-id))
-                             (and (eq (oref section type) 'jj-log-entry-section)
-                                  (oref section commit-id)))))
-    (let ((buffer (get-buffer-create (format "*jj-commit-%s*" commit-id))))
-      (with-current-buffer buffer
-        (let ((inhibit-read-only t))
-          (erase-buffer)
-          (insert (jj--run-command-color "show" "-r" commit-id "--git"))
-          (diff-mode)
-          (ansi-color-apply-on-region (point-min) (point-max))
-          (goto-char (point-min))))
-      (display-buffer buffer))))
 
 (defun jj-edit-changeset ()
   "Edit commit at point."
@@ -1066,17 +1044,30 @@
   "Show diff for current change or commit at point."
   (interactive)
   (let* ((commit-id (jj-get-changeset-at-point))
-         (buffer (get-buffer-create "*jj-diff*")))
-    (with-current-buffer buffer
-      (let ((inhibit-read-only t))
-        (erase-buffer)
-        (if commit-id
-            (insert (jj--run-command-color "show" "-r" commit-id "--git"))
-          (insert (jj--run-command-color "diff" "--git")))
-        (diff-mode)
-        (ansi-color-apply-on-region (point-min) (point-max))
-        (goto-char (point-min))))
-    (display-buffer buffer)))
+         (buffer (get-buffer-create "*jj-diff*"))
+         (prev-buffer (current-buffer)))
+    (if (not commit-id)
+        (message "No diff to view at point.  Try again on a changeset.")
+      (with-current-buffer buffer
+        (let ((inhibit-read-only t))
+          (erase-buffer)
+          (if commit-id
+              (insert (jj--run-command-color "show" "-r" commit-id))
+            (insert (jj--run-command-color "show")))
+          (diff-mode)
+          (ansi-color-apply-on-region (point-min) (point-max))
+          (goto-char (point-min))
+          ;; Make buffer read-only
+          (setq buffer-read-only t)
+          ;; Set up local keymap
+          (use-local-map (copy-keymap diff-mode-map))
+          (local-set-key (kbd "q")
+                         (lambda ()
+                           (interactive)
+                           (kill-buffer)
+                           (when (buffer-live-p prev-buffer)
+                             (switch-to-buffer prev-buffer)))))))
+    (switch-to-buffer buffer)))
 
 ;;;###autoload
 (defun jj-goto-next-changeset ()
@@ -1116,7 +1107,8 @@
   "Get the changeset ID at point."
   (when-let ((section (magit-current-section)))
     (cond
-     ((and (slot-boundp section 'commit-id)
+     ((and (slot-exists-p section 'commit-id)
+           (slot-boundp section 'commit-id)
            (memq (oref section type) '(jj-log-entry-section jj-commit-section)))
       (oref section commit-id))
      (t nil))))
