@@ -80,11 +80,12 @@
 
 (defun jj--run-command (&rest args)
   "Run jj command with ARGS and return output."
-  (jj--debug "Running command: %s %s" jj-executable (string-join args " "))
   (let ((start-time (current-time))
+        (safe-args (seq-remove #'null args))
         result exit-code)
+    (jj--debug "Running command: %s %s" jj-executable (string-join safe-args " "))
     (with-temp-buffer
-      (setq exit-code (apply #'call-process jj-executable nil t nil args))
+      (setq exit-code (apply #'call-process jj-executable nil t nil safe-args))
       (setq result (buffer-string))
       (jj--debug "Command completed in %.3f seconds, exit code: %d"
                  (float-time (time-subtract (current-time) start-time))
@@ -947,14 +948,16 @@
 (defun jj-git-push (args)
   "Push to git remote with ARGS."
   (interactive (list (transient-args 'jj-git-transient)))
-  (let* ((allow-new (member "--allow-new" args))
-         (bookmark-arg (seq-find (lambda (arg) (string-prefix-p "--bookmark=" arg)) args))
+  (let* ((allow-new? (member "--allow-new" args))
+         (all? (member "--all" args))
+         (bookmark-arg(seq-find (lambda (arg) (string-prefix-p "--bookmark=" arg)) args))
          (bookmark (when bookmark-arg (substring bookmark-arg 11)))
-         (cmd-args (cond
-                    ((and bookmark allow-new) (list "git" "push" "--allow-new" "--bookmark" bookmark))
-                    (bookmark (list "git" "push" "--bookmark" bookmark))
-                    (allow-new (list "git" "push" "--allow-new"))
-                    (t (list "git" "push"))))
+
+         (cmd-args (append '("git" "push")
+                           (when allow-new? '("--allow-new"))
+                           (when all? '("--all"))
+                           (when bookmark '("--bookmark" bookmark))))
+
          (success-msg (if bookmark
                           (format "Successfully pushed bookmark %s" bookmark)
                         "Successfully pushed to remote")))
@@ -1275,7 +1278,8 @@
   :transient-non-suffix 'transient--do-warn
   ["Arguments"
    ("-n" "Allow new bookmarks" "--allow-new")
-   ("-b" "Bookmark" "--bookmark=" :reader transient-read-string)]
+   ("-b" "Bookmark" "--bookmark=" :reader transient-read-string)
+   ("-a" "All" "--all")]
   [:description "JJ Git Operations"
    :class transient-columns
    ["Actions"
