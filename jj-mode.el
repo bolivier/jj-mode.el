@@ -1,5 +1,6 @@
 ;;; jj-mode.el -*- lexical-binding: t; -*-
 
+(require 'magit)
 (require 'magit-section)
 (require 'transient)
 (require 'ansi-color)
