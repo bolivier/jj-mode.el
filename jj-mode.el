@@ -227,6 +227,11 @@
       (setq start (match-end 0)))
     (nreverse names)))
 
+(defun jj--get-bookmark-names ()
+  "Call to jj and get the list of local bookmarks."
+  (interactive)
+  (split-string (jj--run-command "bookmark" "list" "-T" "name ++ ' '") " " t))
+
 (defun jj--handle-push-result (cmd-args result success-msg)
   "Enhanced push result handler with bookmark analysis."
   (let ((trimmed-result (string-trim result)))
@@ -950,13 +955,13 @@
   (interactive (list (transient-args 'jj-git-transient)))
   (let* ((allow-new? (member "--allow-new" args))
          (all? (member "--all" args))
-         (bookmark-arg(seq-find (lambda (arg) (string-prefix-p "--bookmark=" arg)) args))
+         (bookmark-arg (seq-find (lambda (arg) (string-prefix-p "--bookmark=" arg)) args))
          (bookmark (when bookmark-arg (substring bookmark-arg 11)))
 
          (cmd-args (append '("git" "push")
                            (when allow-new? '("--allow-new"))
                            (when all? '("--all"))
-                           (when bookmark '("--bookmark" bookmark))))
+                           (when bookmark (list "--bookmark" bookmark))))
 
          (success-msg (if bookmark
                           (format "Successfully pushed bookmark %s" bookmark)
@@ -1278,12 +1283,12 @@
   :transient-non-suffix 'transient--do-warn
   ["Arguments"
    ("-n" "Allow new bookmarks" "--allow-new")
-   ("-b" "Bookmark" "--bookmark=" :reader transient-read-string)
+   ("-b" "Bookmark" "--bookmark="
+    :choices jj--get-bookmark-names)
    ("-a" "All" "--all")]
   [:description "JJ Git Operations"
    :class transient-columns
-   ["Actions"
-    ("p" "Push" jj-git-push
+   [("p" "Push" jj-git-push
      :transient nil)
     ("f" "Fetch" jj-git-fetch
      :transient nil)]
