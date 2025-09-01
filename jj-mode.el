@@ -908,7 +908,7 @@
 (transient-define-prefix jj-squash-transient--internal ()
   "Internal transient for jj squash operations."
   :transient-suffix 'transient--do-exit
-  :transient-non-suffix 'transient--do-warn
+  :transient-non-suffix t
   [:description
    (lambda ()
      (concat "JJ Squash"
@@ -943,10 +943,6 @@
                       (format "Squash %s into parent" jj-squash-from))
                      (t "Execute squash (select commits first)")))
      :transient nil)
-    ("n" "Next" jj-goto-next-changeset
-     :transient t)
-    ("p" "Prev" jj-goto-prev-changeset
-     :transient t)
     ("q" "Quit" transient-quit-one)]])
 
 
@@ -1038,6 +1034,7 @@
 
 (transient-define-prefix jj-bookmark-transient--internal ()
   "Internal transient for jj bookmark operations."
+  :transient-non-suffix t
   ["Bookmark Operations"
    [("t" "Tug" jj-tug
      :description "Run jj tug command")
@@ -1399,7 +1396,7 @@
 (transient-define-prefix jj-rebase-transient--internal ()
   "Internal transient for jj rebase operations."
   :transient-suffix 'transient--do-exit
-  :transient-non-suffix 'transient--do-warn
+  :transient-non-suffix t
   [:description
    (lambda ()
      (concat "JJ Rebase"
@@ -1432,16 +1429,13 @@
                                 (string-join jj-rebase-destinations ", "))
                       "Execute rebase (select source & destinations first)"))
      :transient nil)
-    ("n" "Next" jj-goto-next-changeset
-     :transient t)
-    ("p" "Prev" jj-goto-prev-changeset
-     :transient t)
+
     ("q" "Quit" transient-quit-one)]])
 
 (transient-define-prefix jj-git-transient ()
   "Transient for jj git operations."
   :transient-suffix 'transient--do-exit
-  :transient-non-suffix 'transient--do-warn
+  :transient-non-suffix t
   ["Arguments"
    ("-n" "Allow new bookmarks" "--allow-new")
    ("-b" "Bookmark" "--bookmark="
