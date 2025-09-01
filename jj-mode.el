@@ -88,7 +88,7 @@
         result exit-code)
     (jj--debug "Running command: %s %s" jj-executable (string-join safe-args " "))
     (with-temp-buffer
-      (setq exit-code (apply #'call-process jj-executable nil t nil safe-args))
+      (setq exit-code (apply #'process-file jj-executable nil t nil safe-args))
       (setq result (buffer-string))
       (jj--debug "Command completed in %.3f seconds, exit code: %d"
                  (float-time (time-subtract (current-time) start-time))
@@ -104,7 +104,7 @@
         result exit-code)
     (with-temp-buffer
       (let ((process-environment (cons "FORCE_COLOR=1" (cons "CLICOLOR_FORCE=1" process-environment))))
-        (setq exit-code (apply #'call-process jj-executable nil t nil "--color=always" args))
+        (setq exit-code (apply #'process-file jj-executable nil t nil "--color=always" args))
         (setq result (ansi-color-apply (buffer-string)))
         (jj--debug "Color command completed in %.3f seconds, exit code: %d"
                    (float-time (time-subtract (current-time) start-time))
@@ -117,7 +117,7 @@
   (let ((buffer (generate-new-buffer " *jj-async*"))
         (start-time (current-time)))
     (set-process-sentinel
-     (apply #'start-process "jj" buffer jj-executable args)
+     (apply #'start-file-process "jj" buffer jj-executable args)
      (lambda (process _event)
        (let ((exit-code (process-exit-status process)))
          (jj--debug "Async command completed in %.3f seconds, exit code: %d"
