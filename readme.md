@@ -35,6 +35,12 @@ interact with JJ repositories from within Emacs.
   :straight (:host github :repo "bolivier/jj-mode.el"))
 ```
 
+### use-package with built-in package-vc integration
+```lisp
+(use-package jj-mode
+  :vc (:url "https://github.com/bolivier/jj-mode.el"))
+```
+
 ### Manual
 Clone this repository and add it to your load path:
 ```lisp
