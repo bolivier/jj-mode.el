@@ -24,7 +24,14 @@
   :type 'boolean
   :group 'jj)
 
-;; (setq jj-mode-map nil)
+
+(defcustom jj-log-sections-hook '(jj-log-insert-logs
+                                  jj-log-insert-status
+                                  jj-log-insert-diff)
+  "Hook run to insert sections in the log buffer."
+  :type 'hook
+  :group 'jj)
+
 
 (defvar jj-mode-map
   (let ((map (make-sparse-keymap)))
@@ -507,9 +514,7 @@
         (erase-buffer)
         (jj-mode)
         (magit-insert-section (jjbuf)  ; Root section wrapper
-          (jj-log-insert-logs)
-          (jj-log-insert-status)
-          (jj-log-insert-diff))
+          (magit-run-section-hook 'jj-log-sections-hook))
         (goto-char (point-min))))
     (switch-to-buffer buffer)))
 
@@ -523,9 +528,7 @@
                                (pos (point)))
                            (erase-buffer)
                            (magit-insert-section (jjbuf)  ; Root section wrapper
-                             (jj-log-insert-logs)
-                             (jj-log-insert-status)
-                             (jj-log-insert-diff))
+                             (magit-run-section-hook 'jj-log-sections-hook))
                            (goto-char pos)
                            (jj--debug "Log refresh completed"))))))
 
