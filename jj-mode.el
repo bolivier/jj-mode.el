@@ -893,8 +893,9 @@
 
 (defun jj-squash-cleanup-on-exit ()
   "Clean up squash selections when transient exits."
-  (jj-squash-clear-selections)
-  (remove-hook 'transient-exit-hook 'jj-squash-cleanup-on-exit t))
+  (unless (eq this-command 'jj-mode-bury-squash)
+    (jj-squash-clear-selections)
+    (remove-hook 'transient-exit-hook 'jj-squash-cleanup-on-exit t)))
 
 ;; Squash transient menu
 ;;;###autoload
@@ -943,8 +944,12 @@
                       (format "Squash %s into parent" jj-squash-from))
                      (t "Execute squash (select commits first)")))
      :transient nil)
-    ("q" "Quit" transient-quit-one)]])
+    ("q" "Quit" transient-quit-one)
+    ("b" "Bury" jj-mode-bury-squash)]])
 
+(defun jj-mode-bury-squash ()
+  (interactive)
+  (transient-quit-one))
 
 (defun jj-bookmark-create ()
   "Create a new bookmark."
