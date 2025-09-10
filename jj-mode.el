@@ -35,6 +35,8 @@
   :type 'hook
   :group 'jj)
 
+;; (setq jj-mode-map nil )
+
 (defvar jj-mode-map
   (let ((map (make-sparse-keymap)))
     ;; Navigation
@@ -66,6 +68,7 @@
     ;; Experimental
     (define-key map (kbd "D") 'jj-diff)
     (define-key map (kbd "E") 'jj-diffedit-emacs)
+    (define-key map (kbd "I") 'jj-diffedit-interactive)
     (define-key map (kbd "M") 'jj-diffedit-smerge)
     (define-key map (kbd "?") 'jj-mode-transient)
     map)
@@ -1540,5 +1543,8 @@ With prefix ARG, prompt for the name/ID of the base changeset from all remotes."
     ("f" "Fetch" jj-git-fetch
      :transient nil)]
    [("q" "Quit" transient-quit-one)]])
+
+;; Load jj-split for interactive diffedit
+(require 'jj-split nil t)
 
 (provide 'jj-mode)
