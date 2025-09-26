@@ -108,6 +108,7 @@ The function must accept one argument: the buffer to display."
 (define-derived-mode jj-mode magit-section-mode "JJ"
   "Major mode for interacting with jj version control system."
   :group 'jj
+  (setq-local line-number-mode nil)
   (setq-local revert-buffer-function 'jj-log-refresh)
   ;; Clear rebase selections when buffer is killed
   (add-hook 'kill-buffer-hook 'jj-rebase-clear-selections nil t)
@@ -116,6 +117,41 @@ The function must accept one argument: the buffer to display."
 
 (defvar-local jj--repo-root nil
   "Cached repository root for the current buffer.")
+
+(defconst jj--log-template
+"'\x1e' ++
+if(self.root(),
+  format_root_commit(self),
+  label(
+    separate('\x1e',
+      if(self.current_working_copy(), 'working_copy'),
+      if(self.immutable(), 'immutable', 'mutable'),
+      if(self.conflict(), 'conflicted'),
+    ),
+    concat(
+      separate('\x1e',
+        format_short_change_id_with_hidden_and_divergent_info(self),
+        format_short_signature_oneline(self.author()),
+        concat(' ', self.bookmarks(), self.tags(), self.working_copies()),
+        if(self.git_head(), label('git_head', 'git_head()'), ' '),
+        if(self.conflict(), label('conflict', 'conflict'), ' '),
+        if(config('ui.show-cryptographic-signatures').as_boolean(),
+          format_short_cryptographic_signature(self.signature()),
+          ' '),
+        if(self.empty(), label('empty', '(empty)'), ' '),
+        if(self.description(),
+          self.description().first_line(),
+          label(if(self.empty(), 'empty'), description_placeholder),
+        ),
+        format_short_commit_id(self.commit_id()),
+        format_timestamp(commit_timestamp(self)),
+        if(self.description(), json(self.description()), json(' ')),
+      ),
+    ),
+  )
+)
+"
+"Template for formatting log entries.")
 
 (defun jj--root ()
   "Find root of the current repository."
@@ -335,7 +371,7 @@ When ALL-REMOTES is non-nil, include remote bookmarks formatted as NAME@REMOTE."
 
      ;; Analyze jj-specific push patterns and provide contextual help
      ((string-match-p "Nothing changed" trimmed-result)
-      (message "Nothing to push - all bookmarks are up to date")
+      (message "💡 Nothing to push - all bookmarks are up to date")
       t)
 
      ;; General error check
@@ -392,36 +428,9 @@ When ALL-REMOTES is non-nil, include remote bookmarks formatted as NAME@REMOTE."
    (start :initarg :hunk-start)
    (header :initarg :header)))
 
-(defun jj--parse-log-graph-line (line)
-  "Parse LINE from jj log output to extract changeset info."
-  (when (string-match "\\([○◉×x◆●◯◍@]\\)\\s-*\\([a-z][a-z0-9]+\\)" line)
-    (let* ((marker (match-string 1 line))
-           (id (match-string 2 line))
-           (rest (substring line (match-end 0)))
-           bookmarks description)
-      ;; Extract bookmarks and description from the rest of the line
-      (when (string-match "\\s-+\\(.*\\)" rest)
-        (setq description (match-string 1 rest)))
-      ;; Check if there are bookmark names at the beginning
-      (when (and description (string-match "^\\(\\S-+\\)\\s-+\\(.*\\)" description))
-        (let ((first-word (match-string 1 description)))
-          (when (not (string-match "^[0-9]" first-word))
-            (setq bookmarks first-word
-                  description (match-string 2 description)))))
-      (when id
-        (list :marker marker
-              :id id
-              :bookmarks bookmarks
-              :description description
-              :full-line line)))))
 
-(defun jj--strip-graph-prefix (s)
-  "Drop leading ASCII-graph glyphs and spaces from line S."
-  (when s
-    (let* ((rx "^[[:space:]│├┤┬┴┼─╭╮╰╯╱╲╳•○●◆@~]+"))
-      (string-trim-left s rx))))
 
-(defun jj--get-log-lines-pairs (&optional buf)
+(defun jj-parse-log-entries (&optional buf)
   "Get log line pairs from BUF (defaults to `current-buffer').
 
 This somewhat naively runs log, splits on newlines, and partitions the
@@ -431,61 +440,49 @@ Each pair SHOULD be (line-with-changeset-id-and-email description-line).
 
 The results of this fn are fed into `jj--parse-log-entries'."
   (with-current-buffer (or buf (current-buffer))
-    (let ((log-output (jj--run-command-color "log")))
+    (let ((log-output (jj--run-command-color "log" "-T" jj--log-template)))
       (when (and log-output (not (string-empty-p log-output)))
         (let ((lines (split-string log-output "\n" t)))
-          (cl-loop for cell on lines by #'cddr
-                   for cur = (car cell)
-                   for nxt = (cadr cell)
-                   collect (list cur nxt)))))))
+          (cl-loop for line in lines
+                   for elems = (seq-map (lambda (l) (unless (string-blank-p l)) l) (split-string line "\x1e" ))
+                   when (> (length elems) 1) collect
+                   (seq-let (prefix change-id author bookmarks git-head  conflict signature empty short-desc commit-id timestamp long-desc) elems
+                      (list :id (seq-take change-id 8)
+                            :prefix prefix
+                            :line line
+                            :elems (seq-remove #'string-blank-p elems)
+                            :author author
+                            :commit_id commit-id
+                            :short-desc short-desc
+                            :long-desc  (if long-desc (json-parse-string long-desc) nil)
+                            :timestamp  timestamp
+                            :bookmarks bookmarks ))
+                   else collect
+                   (list :elems (list line nil))))))))
 
-(defun jj-parse-log-entries (entries)
-  "Parse ENTRIES of the shape ((line1 line2) ...) into plists.
-
-This fn does not try to intelligently parse the contents of the line. If
-the log contents are stupidly shaped, that will be reflected here.
-
-Lines may start with ASCII graph glyphs which are ignored."
-  (cl-loop for (l1 l2) in entries
-           for a = (jj--strip-graph-prefix l1)
-           for b = (jj--strip-graph-prefix l2)
-
-           for change-id = (seq-take a 8)
-
-           when (not (seq-empty-p change-id))
-
-           collect (let* ((splitted-string (split-string
-                                            a
-                                            " "))
-                          (commit-id (car (last splitted-string))))
-
-                     (seq-let (_change-id email _date _time &rest bookmarks) (butlast splitted-string)
-
-                       (list :id change-id
-                             :line l1
-                             :line2 l2
-                             :email email
-                             :commit-id commit-id
-                             :description b
-                             :bookmarks (seq-filter
-                                         (lambda (s)
-                                           (not (equal s "git_head()")))
-                                         bookmarks))))))
+(defun jj--indent-string (s column)
+  "Insert STRING into the current buffer, indenting each line to COLUMN."
+  (let ((indentation (make-string column ?\s))) ; Create a string of spaces for indentation
+     (mapconcat (lambda (line)
+                         (concat indentation line))
+                       (split-string s "\n")
+                       "\n"))) ; Join lines with newline, prefixed by indentation
 
 (defun jj-log-insert-logs ()
   "Insert jj log graph into current buffer."
   (magit-insert-section (jj-log-graph-section)
     (magit-insert-heading "Log Graph")
-
-    (dolist (entry (jj-parse-log-entries (jj--get-log-lines-pairs)))
-      (magit-insert-section section (jj-log-entry-section)
+    (dolist (entry (jj-parse-log-entries))
+      (magit-insert-section section (jj-log-entry-section entry t)
                             (oset section commit-id (plist-get entry :id))
                             (oset section description (plist-get entry :description))
                             (oset section bookmarks (plist-get entry :bookmarks))
-                            (insert (plist-get entry :line) "\n")
-                            (when-let ((l2 (plist-get entry :line2)))
-                              (insert l2 "\n"))))
-
+                            (magit-insert-heading
+                              (insert (string-join (butlast (plist-get entry :elems)) " ")) "\n")
+                            (when-let* ((long-desc (plist-get entry :long-desc))
+                                        (long-desc (jj--indent-string long-desc (+ 10 (length (plist-get entry :prefix))))))
+                              (magit-insert-section-body
+                                (insert long-desc "\n")))))
     (insert "\n")))
 
 (defun jj-log-insert-status ()
@@ -604,14 +601,17 @@ Lines may start with ASCII graph glyphs which are ignored."
          (buffer (get-buffer-create buffer-name)))
     (with-current-buffer buffer
       (let ((inhibit-read-only t)
-            (default-directory repo-root))
+            (default-directory repo-root)
+            (inhibit-modification-hooks t))
         (erase-buffer)
         (jj-mode)
+        (funcall jj-log-display-function buffer)
         (setq-local jj--repo-root repo-root)
         (magit-insert-section (jjbuf)  ; Root section wrapper
-          (magit-run-section-hook 'jj-log-sections-hook))
-        (goto-char (point-min))))
-    (funcall jj-log-display-function buffer)))
+          (magit-insert-section-body
+            (magit-run-section-hook 'jj-log-sections-hook))
+          (insert "\n"))
+        (goto-char (point-min))))))
 
 (defun jj-log-refresh (&optional _ignore-auto _noconfirm)
   "Refresh the jj log buffer."
