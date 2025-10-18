@@ -692,6 +692,24 @@ The results of this fn are fed into `jj--parse-log-entries'."
     (let ((full-file-path (expand-file-name file repo-root)))
       (find-file full-file-path))))
 
+(defun jj--path-from-ancestor (ancestor-dir)
+  "Return the path portion from ANCESTOR-DIR to current buffer's directory.
+ANCESTOR-DIR must be an ancestor of the current buffer's file.
+
+Example:
+  In buffer visiting /home/user/project/src/lib/utils/file.txt
+  (path-from-ancestor \"/home/user/project\")
+  => \"src/lib/utils\""
+  (unless buffer-file-name (error "Current buffer is not visiting a file"))
+  (let* ((ancestor (directory-file-name (expand-file-name ancestor-dir)))
+         (current-dir (directory-file-name (file-name-directory buffer-file-name)))
+         (relative (substring current-dir (length ancestor))))
+    (unless (string-prefix-p ancestor current-dir)
+      (error "Directory %s is not an ancestor of %s" ancestor current-dir))
+    (if (string-prefix-p "/" relative)
+        (substring relative 1)
+      relative)))
+
 (defun jj-diffedit-emacs ()
   "Emacs-based diffedit using built-in ediff."
   (interactive)
@@ -813,9 +831,12 @@ The results of this fn are fed into `jj--parse-log-entries'."
   (let* ((changed-files (jj--get-changed-files))
          (choice (if (= (length changed-files) 1)
                      (car changed-files)
-                   (completing-read "Edit file: " changed-files))))
+                   (completing-read "Edit file: " changed-files)))
+         (path-from-ancestor (jj--path-from-ancestor (jj--root))))
     (when choice
-      (jj-diffedit-with-ediff choice))))
+      (jj-diffedit-with-ediff
+       (if (string-blank-p path-from-ancestor) choice
+         (concat path-from-ancestor "/" choice))))))
 
 (defun jj--get-changed-files ()
   "Get list of files with changes in working copy."
