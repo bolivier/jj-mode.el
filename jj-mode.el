@@ -2,8 +2,12 @@
 
 ;; Author: Brandon Olivier
 ;; Keywords: jj, vcs, jujutsu, mode
-;; Package-Requires: ((emacs "26.1"))
+;; Package-Requires: ((emacs "28.1"))
+;; Version: 0.0.1
 ;; Homepage: https://github.com/bolivier/jj-mode.el
+
+;;; Commentary:
+;; A package to provide a Magit like experience when using Jujutsu (jj).
 
 ;; This file is NOT part of GNU Emacs.
 
@@ -1175,7 +1179,7 @@ With prefix ALL, include remote bookmarks."
 (defun jj-tug ()
   "Run jj tug command."
   (interactive)
-  (let ((result (jj--run-command "tug")))
+  (let ((result (jj--run-command "bookmark" "move" "--from" "heads(::@- & bookmarks())" "--to" "@-")))
     (jj-log-refresh)
     (message "Tug completed: %s" (string-trim result))))
 
@@ -1795,3 +1799,4 @@ Tries `jj git remote list' first, then falls back to `git remote'."
            ("q" "Quit" transient-quit-one)]])
 
 (provide 'jj-mode)
+;;; jj-mode.el ends here
