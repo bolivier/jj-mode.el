@@ -188,7 +188,7 @@ if(self.root(),
         result exit-code)
     (jj--debug "Running command: %s %s" jj-executable (string-join safe-args " "))
     (with-temp-buffer
-      (setq exit-code (apply #'process-file jj-executable nil t nil safe-args))
+      (setq exit-code (apply #'process-file jj-executable nil t nil "--color=never" "--no-pager" safe-args))
       (setq result (buffer-string))
       (jj--debug "Command completed in %.3f seconds, exit code: %d"
                  (float-time (time-subtract (current-time) start-time))
