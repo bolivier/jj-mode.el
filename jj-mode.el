@@ -209,6 +209,8 @@ if(self.root(),
         (jj--debug "Color command completed in %.3f seconds, exit code: %d"
                    (float-time (time-subtract (current-time) start-time))
                    exit-code)
+        (when (and jj-show-command-output (not (string-empty-p result)))
+          (jj--debug "Command output: %s" (string-trim result)))
         result))))
 
 (defun jj--run-command-async (callback &rest args)
