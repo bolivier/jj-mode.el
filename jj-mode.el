@@ -457,22 +457,30 @@ The results of this fn are fed into `jj--parse-log-entries'."
                (split-string s "\n")
                "\n"))) ; Join lines with newline, prefixed by indentation
 
+(defun jj--log-insert-entry (entry)
+  (magit-insert-section section (jj-log-entry-section entry t)
+    (oset section commit-id (plist-get entry :id))
+    (oset section description (plist-get entry :short-desc))
+    (oset section bookmarks (plist-get entry :bookmarks))
+    (magit-insert-heading
+      (string-join (butlast (plist-get entry :elems)) " "))
+    (when-let* ((long-desc (plist-get entry :long-desc))
+                (indent-column (+ 10 (length (plist-get entry :prefix))))
+                (long-desc (jj--indent-string long-desc indent-column)))
+      (magit-insert-section-body
+        (insert long-desc "\n")))))
+
+(cl-defmethod magit-section-highlight ((section jj-log-graph-section))
+  "No-op highlight method to disable highlighting for Log Graph section.")
+
 (defun jj-log-insert-logs ()
   "Insert jj log graph into current buffer."
-  (magit-insert-section (jj-log-graph-section)
+  (magit-insert-section section (jj-log-graph-section)
     (magit-insert-heading "Log Graph")
     (dolist (entry (jj-parse-log-entries))
-      (magit-insert-section section (jj-log-entry-section entry t)
-                            (oset section commit-id (plist-get entry :id))
-                            (oset section description (plist-get entry :description))
-                            (oset section bookmarks (plist-get entry :bookmarks))
-                            (magit-insert-heading
-                              (insert (string-join (butlast (plist-get entry :elems)) " ")) "\n")
-                            (when-let* ((long-desc (plist-get entry :long-desc))
-                                        (long-desc (jj--indent-string long-desc (+ 10 (length (plist-get entry :prefix))))))
-                              (magit-insert-section-body
-                                (insert long-desc "\n")))))
-    (insert "\n")))
+      (if (plist-get entry :id)
+          (jj--log-insert-entry entry)
+        (insert (string-join (butlast (plist-get entry :elems)) " ") "\n")))))
 
 (defun jj-log-insert-status ()
   "Insert jj status into current buffer."
