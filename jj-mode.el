@@ -395,18 +395,19 @@ When ALL-REMOTES is non-nil, include remote bookmarks formatted as NAME@REMOTE."
       t))))
 
 (defclass jj-commit-section (magit-section)
-  ((commit-id :initarg :commit-id)
+  ((change-id :initarg :change-id)
    (author :initarg :author)
    (date :initarg :date)
    (description :initarg :description)
-   (bookmarks :initarg :bookmarks)))
+   (bookmarks :initarg :bookmarks)
+   ))
 
 (defclass jj-commits-section (magit-section) ())
 (defclass jj-status-section (magit-section) ())
 (defclass jj-diff-stat-section (magit-section) ())
 (defclass jj-log-graph-section (magit-section) ())
 (defclass jj-log-entry-section (magit-section)
-  ((commit-id :initarg :commit-id)
+  ((change-id :initarg :change-id)
    (description :initarg :description)
    (bookmarks :initarg :bookmarks)))
 (defclass jj-diff-section (magit-section) ())
@@ -463,7 +464,7 @@ The results of this fn are fed into `jj--parse-log-entries'."
     (magit-insert-heading "Log Graph")
     (dolist (entry (jj-parse-log-entries))
       (magit-insert-section section (jj-log-entry-section entry t)
-                            (oset section commit-id (plist-get entry :id))
+                            (oset section change-id (plist-get entry :id))
                             (oset section description (plist-get entry :description))
                             (oset section bookmarks (plist-get entry :bookmarks))
                             (magit-insert-heading
@@ -625,7 +626,7 @@ The results of this fn are fed into `jj--parse-log-entries'."
      ;; On a changeset/commit - edit it with jj edit
      ((and section
            (memq (oref section type) '(jj-log-entry-section jj-commit-section))
-           (slot-boundp section 'commit-id))
+           (slot-boundp section 'change-id))
       (jj-edit-changeset-at-point))
 
      ;; On a diff hunk line - jump to that line in the file
@@ -643,10 +644,10 @@ The results of this fn are fed into `jj--parse-log-entries'."
 (defun jj-edit-changeset-at-point ()
   "Edit the commit at point using jj edit."
   (interactive)
-  (when-let ((commit-id (jj-get-changeset-at-point)))
-    (let ((result (jj--run-command "edit" commit-id)))
-      (if (jj--handle-command-result (list "edit" commit-id) result
-                                     (format "Now editing commit %s" commit-id)
+  (when-let ((change-id (jj-get-changeset-at-point)))
+    (let ((result (jj--run-command "edit" change-id)))
+      (if (jj--handle-command-result (list "edit" change-id) result
+                                     (format "Now editing commit %s" change-id)
                                      "Failed to edit commit")
           (progn
             (jj-log-refresh)
@@ -829,10 +830,10 @@ The results of this fn are fed into `jj--parse-log-entries'."
 (defun jj-edit-changeset ()
   "Edit commit at point."
   (interactive)
-  (when-let ((commit-id (jj-get-changeset-at-point)))
-    (let ((result (jj--run-command "edit" commit-id)))
-      (if (jj--handle-command-result (list "edit" commit-id) result
-                                     (format "Now editing changeset %s" commit-id)
+  (when-let ((change-id (jj-get-changeset-at-point)))
+    (let ((result (jj--run-command "edit" change-id)))
+      (if (jj--handle-command-result (list "edit" change-id) result
+                                     (format "Now editing changeset %s" change-id)
                                      "Failed to edit commit")
           (jj-log-refresh)))))
 
@@ -867,37 +868,37 @@ The results of this fn are fed into `jj--parse-log-entries'."
 (defun jj-squash-set-from ()
   "Set the commit at point as squash `from' source."
   (interactive)
-  (when-let ((commit-id (jj-get-changeset-at-point))
+  (when-let ((change-id (jj-get-changeset-at-point))
              (section (magit-current-section)))
     ;; Clear previous from overlay
     (when jj-squash-from-overlay
       (delete-overlay jj-squash-from-overlay))
     ;; Set new from
-    (setq jj-squash-from commit-id)
+    (setq jj-squash-from change-id)
     ;; Create overlay for visual indication
     (setq jj-squash-from-overlay
           (make-overlay (oref section start) (oref section end)))
     (overlay-put jj-squash-from-overlay 'face '(:background "dark orange" :foreground "white"))
     (overlay-put jj-squash-from-overlay 'before-string "[FROM] ")
-    (message "Set from: %s" commit-id)))
+    (message "Set from: %s" change-id)))
 
 ;;;###autoload
 (defun jj-squash-set-into ()
   "Set the commit at point as squash 'into' destination."
   (interactive)
-  (when-let ((commit-id (jj-get-changeset-at-point))
+  (when-let ((change-id (jj-get-changeset-at-point))
              (section (magit-current-section)))
     ;; Clear previous into overlay
     (when jj-squash-into-overlay
       (delete-overlay jj-squash-into-overlay))
     ;; Set new into
-    (setq jj-squash-into commit-id)
+    (setq jj-squash-into change-id)
     ;; Create overlay for visual indication
     (setq jj-squash-into-overlay
           (make-overlay (oref section start) (oref section end)))
     (overlay-put jj-squash-into-overlay 'face '(:background "dark cyan" :foreground "white"))
     (overlay-put jj-squash-into-overlay 'before-string "[INTO] ")
-    (message "Set into: %s" commit-id)))
+    (message "Set into: %s" change-id)))
 
 ;;;###autoload
 (defun jj-squash-execute (&optional args)
@@ -931,16 +932,16 @@ The results of this fn are fed into `jj--parse-log-entries'."
                                  combined-desc)))
      ;; No selection - use commit at point
      (t
-      (if-let ((commit-id (jj-get-changeset-at-point)))
-          (let* ((parent-desc (string-trim (jj--run-command "log" "-r" (format "%s-" commit-id) "--no-graph" "-T" "description")))
-                 (commit-desc (string-trim (jj--run-command "log" "-r" commit-id "--no-graph" "-T" "description")))
+      (if-let ((change-id (jj-get-changeset-at-point)))
+          (let* ((parent-desc (string-trim (jj--run-command "log" "-r" (format "%s-" change-id) "--no-graph" "-T" "description")))
+                 (commit-desc (string-trim (jj--run-command "log" "-r" change-id "--no-graph" "-T" "description")))
                  (combined-desc (if (string-empty-p parent-desc)
                                     commit-desc
                                   parent-desc))) ; Keep parent message by default
             (jj--open-message-buffer "SQUASH_MSG"
-                                     (format "jj squash -r %s" commit-id)
+                                     (format "jj squash -r %s" change-id)
                                      'jj--squash-finish
-                                     (list :from commit-id :into nil :keep keep-commit)
+                                     (list :from change-id :into nil :keep keep-commit)
                                      combined-desc))
         (jj--message-with-log "No commit selected for squash"))))))
 
@@ -1043,10 +1044,10 @@ The results of this fn are fed into `jj--parse-log-entries'."
 (defun jj-bookmark-create ()
   "Create a new bookmark."
   (interactive)
-  (let* ((commit-id (or (jj-get-changeset-at-point) "@"))
+  (let* ((change-id (or (jj-get-changeset-at-point) "@"))
          (name (read-string "Bookmark name: ")))
     (unless (string-empty-p name)
-      (jj--run-command "bookmark" "create" name "-r" commit-id)
+      (jj--run-command "bookmark" "create" name "-r" change-id)
       (jj-log-refresh))))
 
 (defun jj-bookmark-delete ()
@@ -1234,9 +1235,9 @@ With prefix ALL, include remote bookmarks."
 (defun jj-abandon ()
   "Abandon a changeset."
   (interactive)
-  (if-let ((commit-id (jj-get-changeset-at-point)))
+  (if-let ((change-id (jj-get-changeset-at-point)))
       (progn
-        (jj--run-command "abandon" "-r" commit-id)
+        (jj--run-command "abandon" "-r" change-id)
         (jj-log-refresh))
     (message "Can only run new on a change")))
 
@@ -1314,9 +1315,9 @@ With prefix ARG, open the transient menu for advanced options."
 
          ;; Default to current changeset if no parents/after/before specified
          (final-cmd-args (if (and (null parent-args) (null after-args) (null before-args))
-                             (let ((commit-id (jj-get-changeset-at-point)))
-                               (if commit-id
-                                   (append cmd-args (list commit-id))
+                             (let ((change-id (jj-get-changeset-at-point)))
+                               (if change-id
+                                   (append cmd-args (list change-id))
                                  cmd-args))
                            cmd-args)))
 
@@ -1337,16 +1338,16 @@ With prefix ARG, open the transient menu for advanced options."
       (goto-char (line-beginning-position))
     (message "Current changeset (@) not found")))
 
-(defun jj-goto-commit (commit-id &optional silent)
-  "Jump to a specific COMMIT-ID in the log. Returns truthy value on success."
-  (interactive "sCommit ID: ")
+(defun jj-goto-commit (change-id &optional silent)
+  "Jump to a specific CHANGE-ID in the log. Returns truthy value on success."
+  (interactive "sChange ID: ")
   (let ((start-pos (point)))
     (goto-char (point-min))
-    (if (re-search-forward (regexp-quote commit-id) nil t)
+    (if (re-search-forward (regexp-quote change-id) nil t)
         (goto-char (line-beginning-position))
       (goto-char start-pos)
       (unless silent
-        (message "Commit %s not found" commit-id))
+        (message "Commit %s not found" change-id))
       nil)))
 
 (defun jj--get-git-remotes ()
@@ -1432,15 +1433,15 @@ Tries `jj git remote list' first, then falls back to `git remote'."
 (defun jj-describe ()
   "Open describe message buffer."
   (interactive)
-  (let ((commit-id (jj-get-changeset-at-point)))
-    (if commit-id
-        (let ((current-desc (string-trim (jj--run-command "log" "-r" commit-id "--no-graph" "-T" "description"))))
+  (let ((change-id (jj-get-changeset-at-point)))
+    (if change-id
+        (let ((current-desc (string-trim (jj--run-command "log" "-r" change-id "--no-graph" "-T" "description"))))
           (jj--open-message-buffer "DESCRIBE_MSG"
-                                   (format "jj describe -r %s" commit-id)
-                                   'jj--describe-finish commit-id current-desc))
+                                   (format "jj describe -r %s" change-id)
+                                   'jj--describe-finish change-id current-desc))
       (message "No changeset at point"))))
 
-(defun jj--open-message-buffer (buffer-name command finish-func &optional commit-id initial-desc)
+(defun jj--open-message-buffer (buffer-name command finish-func &optional change-id initial-desc)
   "Open a message editing buffer."
   (let* ((repo-root (jj--root))
          (log-buffer (current-buffer))
@@ -1452,7 +1453,7 @@ Tries `jj git remote list' first, then falls back to `git remote'."
       (setq-local default-directory repo-root)
       (setq-local jj--message-command command)
       (setq-local jj--message-finish-func finish-func)
-      (setq-local jj--message-commit-id commit-id)
+      (setq-local jj--message-change-id change-id)
       (setq-local jj--log-buffer log-buffer)
       (setq-local jj--window-config window-config)
       (local-set-key (kbd "C-c C-c") 'jj--message-finish)
@@ -1472,14 +1473,14 @@ Tries `jj git remote list' first, then falls back to `git remote'."
          (final-message (string-trim (string-join filtered-lines "\n")))
          (command jj--message-command)
          (finish-func jj--message-finish-func)
-         (commit-id jj--message-commit-id)
+         (change-id jj--message-change-id)
          (log-buffer jj--log-buffer)
          (window-config jj--window-config))
     (if (string-empty-p final-message)
         (message "Empty message, aborting")
       (kill-buffer)
       (set-window-configuration window-config)
-      (funcall finish-func final-message commit-id))))
+      (funcall finish-func final-message change-id))))
 
 (defun jj--message-abort ()
   "Abort message editing."
@@ -1490,7 +1491,7 @@ Tries `jj git remote list' first, then falls back to `git remote'."
       (set-window-configuration window-config)
       (message "Aborted"))))
 
-(defun jj--commit-finish (message &optional _commit-id)
+(defun jj--commit-finish (message &optional _change-id)
   "Finish commit with MESSAGE."
   (jj--message-with-log "Committing changes...")
   (let ((result (jj--run-command "commit" "-m" message)))
@@ -1499,14 +1500,14 @@ Tries `jj git remote list' first, then falls back to `git remote'."
                                    "Failed to commit")
         (jj-log-refresh))))
 
-(defun jj--describe-finish (message &optional commit-id)
-  "Finish describe with MESSAGE for COMMIT-ID."
-  (if commit-id
+(defun jj--describe-finish (message &optional change-id)
+  "Finish describe with MESSAGE for CHANGE-ID."
+  (if change-id
       (progn
-        (jj--message-with-log "Updating description for %s..." commit-id)
-        (let ((result (jj--run-command "describe" "-r" commit-id "-m" message)))
-          (if (jj--handle-command-result (list "describe" "-r" commit-id "-m" message) result
-                                         (format "Description updated for %s" commit-id)
+        (jj--message-with-log "Updating description for %s..." change-id)
+        (let ((result (jj--run-command "describe" "-r" change-id "-m" message)))
+          (if (jj--handle-command-result (list "describe" "-r" change-id "-m" message) result
+                                         (format "Description updated for %s" change-id)
                                          "Failed to update description")
               (jj-log-refresh))))
     (jj--message-with-log "No commit ID available for description update")))
@@ -1538,16 +1539,16 @@ Tries `jj git remote list' first, then falls back to `git remote'."
 (defun jj-diff ()
   "Show diff for current change or commit at point."
   (interactive)
-  (let* ((commit-id (jj-get-changeset-at-point))
+  (let* ((change-id (jj-get-changeset-at-point))
          (buffer (get-buffer-create "*jj-diff*"))
          (prev-buffer (current-buffer)))
-    (if (not commit-id)
+    (if (not change-id)
         (message "No diff to view at point.  Try again on a changeset.")
       (with-current-buffer buffer
         (let ((inhibit-read-only t))
           (erase-buffer)
-          (if commit-id
-              (insert (jj--run-command-color "show" "-r" commit-id))
+          (if change-id
+              (insert (jj--run-command-color "show" "-r" change-id))
             (insert (jj--run-command-color "show")))
           (diff-mode)
           (ansi-color-apply-on-region (point-min) (point-max))
@@ -1602,10 +1603,10 @@ Tries `jj git remote list' first, then falls back to `git remote'."
   "Get the changeset ID at point."
   (when-let ((section (magit-current-section)))
     (cond
-     ((and (slot-exists-p section 'commit-id)
-           (slot-boundp section 'commit-id)
+     ((and (slot-exists-p section 'change-id)
+           (slot-boundp section 'change-id)
            (memq (oref section type) '(jj-log-entry-section jj-commit-section)))
-      (oref section commit-id))
+      (oref section change-id))
      (t nil))))
 
 ;; Rebase state management
@@ -1639,45 +1640,45 @@ Tries `jj git remote list' first, then falls back to `git remote'."
 (defun jj-rebase-set-source ()
   "Set the commit at point as rebase source."
   (interactive)
-  (when-let ((commit-id (jj-get-changeset-at-point))
+  (when-let ((change-id (jj-get-changeset-at-point))
              (section (magit-current-section)))
     ;; Clear previous source overlay
     (when jj-rebase-source-overlay
       (delete-overlay jj-rebase-source-overlay))
     ;; Set new source
-    (setq jj-rebase-source commit-id)
+    (setq jj-rebase-source change-id)
     ;; Create overlay for visual indication
     (setq jj-rebase-source-overlay
           (make-overlay (oref section start) (oref section end)))
     (overlay-put jj-rebase-source-overlay 'face '(:background "dark green" :foreground "white"))
     (overlay-put jj-rebase-source-overlay 'before-string "[SOURCE] ")
-    (message "Set source: %s" commit-id)))
+    (message "Set source: %s" change-id)))
 
 ;;;###autoload
 (defun jj-rebase-toggle-destination ()
   "Toggle the commit at point as a rebase destination."
   (interactive)
-  (when-let ((commit-id (jj-get-changeset-at-point))
+  (when-let ((change-id (jj-get-changeset-at-point))
              (section (magit-current-section)))
-    (if (member commit-id jj-rebase-destinations)
+    (if (member change-id jj-rebase-destinations)
         ;; Remove from destinations
         (progn
-          (setq jj-rebase-destinations (remove commit-id jj-rebase-destinations))
+          (setq jj-rebase-destinations (remove change-id jj-rebase-destinations))
           ;; Remove overlay
           (dolist (overlay jj-rebase-destination-overlays)
             (when (and (>= (overlay-start overlay) (oref section start))
                        (<= (overlay-end overlay) (oref section end)))
               (delete-overlay overlay)
               (setq jj-rebase-destination-overlays (remove overlay jj-rebase-destination-overlays))))
-          (message "Removed destination: %s" commit-id))
+          (message "Removed destination: %s" change-id))
       ;; Add to destinations
-      (push commit-id jj-rebase-destinations)
+      (push change-id jj-rebase-destinations)
       ;; Create overlay for visual indication
       (let ((overlay (make-overlay (oref section start) (oref section end))))
         (overlay-put overlay 'face '(:background "dark blue" :foreground "white"))
         (overlay-put overlay 'before-string "[DEST] ")
         (push overlay jj-rebase-destination-overlays)
-        (message "Added destination: %s" commit-id)))))
+        (message "Added destination: %s" change-id)))))
 
 ;;;###autoload
 (defun jj-rebase-execute ()
