@@ -396,6 +396,7 @@ When ALL-REMOTES is non-nil, include remote bookmarks formatted as NAME@REMOTE."
 
 (defclass jj-commit-section (magit-section)
   ((change-id :initarg :change-id)
+   (commit-id :initarg :commit-id)
    (author :initarg :author)
    (date :initarg :date)
    (description :initarg :description)
@@ -408,6 +409,7 @@ When ALL-REMOTES is non-nil, include remote bookmarks formatted as NAME@REMOTE."
 (defclass jj-log-graph-section (magit-section) ())
 (defclass jj-log-entry-section (magit-section)
   ((change-id :initarg :change-id)
+   (commit-id :initarg :commit-id)
    (description :initarg :description)
    (bookmarks :initarg :bookmarks)))
 (defclass jj-diff-section (magit-section) ())
@@ -465,6 +467,7 @@ The results of this fn are fed into `jj--parse-log-entries'."
     (dolist (entry (jj-parse-log-entries))
       (magit-insert-section section (jj-log-entry-section entry t)
                             (oset section change-id (plist-get entry :id))
+                            (oset section commit-id (plist-get entry :commit-id))
                             (oset section description (plist-get entry :description))
                             (oset section bookmarks (plist-get entry :bookmarks))
                             (magit-insert-heading
@@ -1143,16 +1146,16 @@ With prefix ALL, include remote bookmarks."
           (jj-log-refresh))))))
 
 ;;;###autoload
-(defun jj-bookmark-set (name commit)
+(defun jj-bookmark-set (name commit &optional use-commit-id allow-backwards)
   "Create or update bookmark NAME to point to COMMIT."
   (interactive
    (let* ((existing (jj--get-bookmark-names))
           (name (completing-read "Set bookmark: " existing nil nil))
-          (at (or (jj-get-changeset-at-point) "@"))
+          (at (or (jj-get-changeset-at-point (transient-args 'jj-bookmark-transient--internal)) "@"))
           (rev (read-string (format "Target revision (default %s): " at) nil nil at)))
-     (list name rev)))
+     (append (list name rev) (transient-args 'jj-bookmark-transient--internal))))
   (let ((default-directory (jj--root)))
-    (let ((result (jj--run-command "bookmark" "set" name "-r" commit)))
+    (let ((result (jj--run-command "bookmark" "set" name "-r" commit (when allow-backwards "--allow-backwards"))))
       (when (jj--handle-command-result (list "bookmark" "set" name "-r" commit) result
                                        (format "Set bookmark '%s' to %s" name commit)
                                        "Failed to set bookmark")
@@ -1194,7 +1197,10 @@ With prefix ALL, include remote bookmarks."
   "Internal transient for jj bookmark operations."
   :transient-suffix 'transient--do-exit
   :transient-non-suffix t
-  ["Bookmark Operations"
+   ["Arguments"
+    ("-c" "Use commit id" "--use-commit-id")
+    ("-B" "Allow backwards" "--allow-backwards")]
+  ["Bookmark Operations"  
    [
     ("l" "List bookmarks" jj-bookmark-list
      :description "Show bookmark list" :transient nil)
@@ -1599,15 +1605,16 @@ Tries `jj git remote list' first, then falls back to `git remote'."
       (goto-char pos)
       (message "No more changesets"))))
 
-(defun jj-get-changeset-at-point ()
-  "Get the changeset ID at point."
-  (when-let ((section (magit-current-section)))
-    (cond
-     ((and (slot-exists-p section 'change-id)
-           (slot-boundp section 'change-id)
-           (memq (oref section type) '(jj-log-entry-section jj-commit-section)))
-      (oref section change-id))
-     (t nil))))
+(defun jj-get-changeset-at-point (&optional args)
+  "Get the changeset ID at point."  
+  (let ((id-type (if (transient-arg-value "--use-commit-id" args) 'commit-id 'change-id)))   
+    (when-let ((section (magit-current-section)))
+      (cond
+       ((and (slot-exists-p section id-type)
+             (slot-boundp section id-type)
+             (memq (oref section type) '(jj-log-entry-section jj-commit-section)))
+        (slot-value section id-type))
+       (t nil)))))
 
 ;; Rebase state management
 (defvar-local jj-rebase-source nil
