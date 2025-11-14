@@ -63,7 +63,7 @@ The function must accept one argument: the buffer to display."
   :group 'jj)
 
 (defface jj-log-graph-face
-  '((t :inherit 'default))
+  '((t))
   "Face to render log graph")
  (defface jj-log-graph-fixed-pitch-face
   '((t :inherit (fixed-pitch jj-log-graph-face)))
@@ -476,6 +476,11 @@ calculated 3 times."
   "Wrapper around `'string-trim` that passes-through nil values without error"
   (and str (string-trim str)))
 
+(defun jj--add-face (str face)
+  "Like (propertize str 'font-lock-face face) but composes with existing faces on string."
+  (font-lock-append-text-property 0 (length str) 'font-lock-face face str)
+  str)
+
 (defun jj-parse-log-entries (&optional buf)
   "Get log line pairs from BUF (defaults to `current-buffer').
 
@@ -517,13 +522,35 @@ The results of this fn are fed into `jj--parse-log-entries'."
                    else collect
                    (list :elems (list line))))))))
 
-(defun jj--indent-string (s column)
-  "Insert STRING into the current buffer, indenting each line to COLUMN."
-  (let ((indentation (make-string column ?\s))) ; Create a string of spaces for indentation
-    (mapconcat (lambda (line)
-                 (concat indentation line))
-               (split-string s "\n")
-               "\n"))) ; Join lines with newline, prefixed by indentation
+(defun jj--make-body-prefix (prefix suffix)
+  "Computes line prefix for lines following first line of the log section.
+It does it by replacing all non-space characters with vertical bar.
+This procedure produces valid graph rendering"
+  (propertize (concat (replace-regexp-in-string "\\S-" "│" prefix) suffix)
+              'font-lock-face 'jj-log-graph-fixed-pitch-face))
+
+
+;; We need to advice `magit-section-show' and `magit-section-hide' with
+;; adding/removing prefix on show/hid opertions, because otherwise
+;; line-prefix will be applied to lines even when body is invisible
+(defun jj--magit-section-show (section &optional end)
+  (when (eq (oref section type) 'jj-log-entry-section)
+    (let* ((prefix (oref section prefix))
+           (body-prefix (jj--make-body-prefix prefix "   "))
+           (start (oref section content))
+           (end (or end (oref section end)))
+           (inhibit-read-only t))
+      (put-text-property start end 'line-prefix body-prefix)
+      (put-text-property start end 'wrap-prefix body-prefix))))
+(defun jj--magit-section-hide (section)
+  (when (eq (oref section type) 'jj-log-entry-section)
+    (let ((start (oref section content))
+          (end (oref section end))
+          (inhibit-read-only t))
+      (remove-text-properties start end '(line-prefix wrap-prefix)))))
+(advice-add 'magit-section-show :after 'jj--magit-section-show)
+(advice-add 'magit-section-hide :after 'jj--magit-section-hide)
+
 
 (defun jj--log-insert-entry (entry)
   (let* ((hide (not jj--expand-log-entries))
@@ -538,28 +565,28 @@ The results of this fn are fed into `jj--parse-log-entries'."
       (oset section description (plist-get entry :short-desc))
       (oset section bookmarks (plist-get entry :bookmarks))
       (oset section prefix prefix)
-      (magit-insert-heading (concat prefix " " formatted-heading))
-      (let ((prefix-and-commit-id-end (+ section-start (length prefix) 10)))
-        (font-lock-append-text-property section-start prefix-and-commit-id-end
-                                        'font-lock-face 'jj-log-graph-fixed-pitch-face))
+      (magit-insert-heading
+        (concat (jj--add-face prefix 'jj-log-graph-fixed-pitch-face)
+                " " formatted-heading))
+      (font-lock-append-text-property section-start (point) 'font-lock-face 'jj-log-graph-face)
       (when (eq (plist-get entry :current-working-copy) t)
         (font-lock-append-text-property section-start (point) 'font-lock-face 'jj-working-copy-heading))
       (magit-insert-section-body
-        (let ((indent-column (+ 10 (length (plist-get entry :prefix))))
+        (let ((body-start (point))
               (long-desc (plist-get entry :long-desc))
               (diff-stat (plist-get entry :diff-stat)))
           (when (not (string-empty-p long-desc))
-            (insert (jj--indent-string long-desc indent-column) "\n"))
+            (insert (jj--add-face (concat long-desc "\n") 'jj-log-graph-face)))
           (when (and diff-stat (not (string-empty-p diff-stat)))
-            (insert "\n" (jj--indent-string diff-stat indent-column) "\n"))
-          (font-lock-append-text-property body-start (point) 'font-lock-face 'jj-log-graph-face))))))
+            (insert (jj--add-face (concat "\n" diff-stat "\n") 'jj-log-graph-fixed-pitch-face)))
+          (jj--magit-section-show section (point)))))))
 
 (cl-defmethod magit-section-highlight ((section jj-log-graph-section))
   "No-op highlight method to disable highlighting for Log Graph section.")
 
 (defun jj-log-insert-logs ()
   "Insert jj log graph into current buffer."
-
+  (jj--cache-render-log-entry-function)
   (magit-insert-section section (jj-log-graph-section)
     (magit-insert-heading (concat "Log Graph"
                                   (when jj--log-revset (format ": %s" jj--log-revset))))
@@ -567,9 +594,7 @@ The results of this fn are fed into `jj--parse-log-entries'."
       (dolist (entry (jj-parse-log-entries))
         (if (plist-get entry :id)
             (jj--log-insert-entry entry)
-          (let ((line-start (point)))
-            (insert (string-join (plist-get entry :elems) " ") "\n")
-            (font-lock-append-text-property line-start (point) 'font-lock-face 'jj-log-graph-fixed-pitch-face))))
+          (insert (jj--add-face (concat (string-join (plist-get entry :elems) " ") "\n") 'jj-log-graph-fixed-pitch-face))))
       (font-lock-append-text-property graph-start (point) 'font-lock-face 'jj-log-graph-face))))
 
 (defun jj-log-insert-status ()
