@@ -62,10 +62,21 @@ The function must accept one argument: the buffer to display."
           (function :tag "Custom function"))
   :group 'jj)
 
+(defcustom jj-log-entry-template 'multiline
+  "Template to use to show log entry lines"
+  :type '(choice
+          (symbol :tag "Multiline" multiline)
+          (symbol :tag "Oneline" oneline)
+          (sexp :tag "Custom field list"))
+  :group 'jj)
+
+(defvar jj--render-log-entry-function nil
+  "Cached function for rendering log entry template")
+
 (defface jj-log-graph-face
   '((t))
   "Face to render log graph")
- (defface jj-log-graph-fixed-pitch-face
+(defface jj-log-graph-fixed-pitch-face
   '((t :inherit (fixed-pitch jj-log-graph-face)))
   "Face to use for rendering log graph"
   :group 'jj)
@@ -505,29 +516,62 @@ The results of this fn are fed into `jj--parse-log-entries'."
                           (metadata (json-parse-string metadata-json :object-type 'plist))
                           (optional-diff-stat (plist-get metadata :diff-stat))
                           (short-diff-stat (jj--format-short-diff-stat optional-diff-stat)))
-                     ;; Insert short-diff-stat after short-desc
                      (seq-let (prefix change-id author bookmarks git-head conflict signature empty short-desc commit-id timestamp metadata-json) elems
-                       (list :id (seq-take change-id 8)
-                             :prefix prefix
-                             :line line
-                             :elems (remove nil (list prefix change-id author bookmarks git-head conflict signature empty short-desc short-diff-stat commit-id timestamp))
-                             :author author
-                             :commit-id commit-id
-                             :short-desc short-desc
-                             :long-desc (jj--optional-string-trim (plist-get metadata :long-desc))
-                             :diff-stat (jj--optional-string-trim optional-diff-stat)
-                             :current-working-copy (plist-get metadata :current-working-copy)
-                             :timestamp  timestamp
-                             :bookmarks bookmarks)))
+                       (let ((body-prefix (jj--make-body-prefix prefix "")))
+                         (list :id (seq-take change-id 8)
+                               :prefix prefix
+                               :heading (apply (cdr jj--render-log-entry-function) short-diff-stat body-prefix elems)
+                               :author author
+                               :commit-id commit-id
+                               :long-desc (jj--optional-string-trim (plist-get metadata :long-desc))
+                               :diff-stat (jj--optional-string-trim optional-diff-stat)
+                               :current-working-copy (plist-get metadata :current-working-copy)
+                               :bookmarks bookmarks))))
                    else collect
-                   (list :elems (list line))))))))
+                   (list :heading line)))))))
+
+(defun jj--expand-log-entry-template (template)
+  (cond
+   ((eq template 'multiline)
+    '(change-id author timestamp bookmarks git-head commit-id conflict signature empty newline short-desc diff-stat))
+   ((eq template 'oneline)
+    '(change-id author bookmarks git-head conflict signature empty short-desc commit-id timestamp))
+   ((listp template)
+    template)
+   (t (cons "Invalid jj-log-entry-template" (jj--expand-log-entry-template 'multiline)))))
+
+(defun jj--create-render-log-entry-function (template)
+  (let ((args '(diff-stat body-prefix prefix change-id author bookmarks git-head conflict signature empty short-desc commit-id timestamp metadata-json))
+        (accum '((jj--add-face prefix 'jj-log-graph-fixed-pitch-face))))
+    (dolist (field template)
+      (cond
+       ((eq field 'newline)
+        (push "\n" accum)
+        (push 'body-prefix accum))
+       ((member field args)
+        (push `(when ,field " ") accum)
+        (push field accum))
+       ;; Just render invalid stuff somehow
+       (t (push (format " [%s]" field) accum))))
+    (byte-compile
+     `(lambda (,@args)
+        (propertize (concat ,@(reverse accum)) 'wrap-prefix body-prefix)))))
+
+(defun jj--cache-render-log-entry-function ()
+  "Recreates jj--render-log-entry-function if template has changed"
+  (unless (equal jj-log-entry-template (car jj--render-log-entry-function))
+    (setq jj--render-log-entry-function
+          (cons jj-log-entry-template
+                (jj--create-render-log-entry-function
+                 (jj--expand-log-entry-template jj-log-entry-template))))))
+
 
 (defun jj--make-body-prefix (prefix suffix)
   "Computes line prefix for lines following first line of the log section.
 It does it by replacing all non-space characters with vertical bar.
 This procedure produces valid graph rendering"
-  (propertize (concat (replace-regexp-in-string "\\S-" "│" prefix) suffix)
-              'font-lock-face 'jj-log-graph-fixed-pitch-face))
+  (let ((patched-prefix (concat (replace-regexp-in-string "\\S-" "│" prefix) suffix)))
+    (propertize patched-prefix 'font-lock-face 'jj-log-graph-fixed-pitch-face)))
 
 
 ;; We need to advice `magit-section-show' and `magit-section-hide' with
@@ -556,18 +600,13 @@ This procedure produces valid graph rendering"
   (let* ((hide (not jj--expand-log-entries))
          (section-start (point))
          (id (plist-get entry :id))
-         (elems (plist-get entry :elems))
-         (prefix (car elems))
-         (heading (cdr elems))
-         (formatted-heading (string-join heading " ")))
+         (prefix (plist-get entry :prefix))
+         (heading (plist-get entry :heading)))
     (magit-insert-section section (jj-log-entry-section entry hide)
       (oset section commit-id (plist-get entry :id))
-      (oset section description (plist-get entry :short-desc))
       (oset section bookmarks (plist-get entry :bookmarks))
       (oset section prefix prefix)
-      (magit-insert-heading
-        (concat (jj--add-face prefix 'jj-log-graph-fixed-pitch-face)
-                " " formatted-heading))
+      (magit-insert-heading heading)
       (font-lock-append-text-property section-start (point) 'font-lock-face 'jj-log-graph-face)
       (when (eq (plist-get entry :current-working-copy) t)
         (font-lock-append-text-property section-start (point) 'font-lock-face 'jj-working-copy-heading))
@@ -594,8 +633,7 @@ This procedure produces valid graph rendering"
       (dolist (entry (jj-parse-log-entries))
         (if (plist-get entry :id)
             (jj--log-insert-entry entry)
-          (insert (jj--add-face (concat (string-join (plist-get entry :elems) " ") "\n") 'jj-log-graph-fixed-pitch-face))))
-      (font-lock-append-text-property graph-start (point) 'font-lock-face 'jj-log-graph-face))))
+          (insert (jj--add-face (concat (plist-get entry :heading) "\n") 'jj-log-graph-fixed-pitch-face)))))))
 
 (defun jj-log-insert-status ()
   "Insert jj status into current buffer."
