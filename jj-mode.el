@@ -62,6 +62,24 @@ The function must accept one argument: the buffer to display."
           (function :tag "Custom function"))
   :group 'jj)
 
+(defcustom jj-log-entry-template 'multiline
+  "Template to use to show log entry lines"
+  :type '(choice
+          (symbol :tag "Multiline" multiline)
+          (symbol :tag "Oneline" oneline)
+          (sexp :tag "Custom field list"))
+  :group 'jj)
+
+(defvar jj--render-log-entry-function nil
+  "Cached function for rendering log entry template")
+
+(defface jj-log-graph-face
+  '((t))
+  "Face to render log graph")
+(defface jj-log-graph-fixed-pitch-face
+  '((t :inherit (fixed-pitch jj-log-graph-face)))
+  "Face to use for rendering log graph"
+  :group 'jj)
 ;; diff-added/diff-removed faces (default and magit) often set background which spoils jj graph view
 ;; Instead define our own faces
 (defface jj-diff-stat-added
@@ -71,6 +89,10 @@ The function must accept one argument: the buffer to display."
 (defface jj-diff-stat-removed
   '((t :foreground "#AF0000"))
   "Face for showing removed line count"
+  :group 'jj)
+(defface jj-working-copy-heading
+  '((t :inherit region :extend t))
+  "Face for showing current working copy in the log graph"
   :group 'jj)
 
 (defvar jj-mode-map
@@ -163,27 +185,25 @@ if(self.root(),
       if(self.immutable(), 'immutable', 'mutable'),
       if(self.conflict(), 'conflicted'),
     ),
-    concat(
-      separate('\x1e',
-        format_short_change_id_with_hidden_and_divergent_info(self),
-        format_short_signature_oneline(self.author()),
-        concat(' ', separate(' ', self.bookmarks(), self.tags(), self.working_copies())),
-        if(self.git_head(), label('git_head', 'git_head()'), ' '),
-        if(self.conflict(), label('conflict', 'conflict'), ' '),
-        if(config('ui.show-cryptographic-signatures').as_boolean(),
-          format_short_cryptographic_signature(self.signature()),
-          ' '),
-        if(self.empty(), label('empty', '(empty)'), ' '),
-        if(self.description(),
-          self.description().first_line(),
-          label(if(self.empty(), 'empty'), description_placeholder),
-        ),
-        format_short_commit_id(self.commit_id()),
-        format_timestamp(commit_timestamp(self)),
-        '{\"long-desc\":' ++ self.description().escape_json()"
+    separate('\x1e',
+      format_short_change_id_with_hidden_and_divergent_info(self),
+      format_short_signature_oneline(self.author()),
+      concat(' ', separate(' ', self.bookmarks(), self.tags(), self.working_copies())),
+      if(self.git_head(), label('git_head', 'git_head()'), ' '),
+      if(self.conflict(), label('conflict', 'conflict'), ' '),
+      if(config('ui.show-cryptographic-signatures').as_boolean(),
+        format_short_cryptographic_signature(self.signature()),
+        ' '),
+      if(self.empty(), label('empty', '(empty)'), ' '),
+      if(self.description(),
+        self.description().first_line(),
+        label(if(self.empty(), 'empty'), description_placeholder),
+      ),
+      format_short_commit_id(self.commit_id()),
+      format_timestamp(commit_timestamp(self)),
+      '{\"long-desc\":' ++ self.description().escape_json() ++ ',\"current-working-copy\":' ++ json(self.current_working_copy())"
    (when jj-log-show-diff-stat " ++ ',\"diff-stat\":' ++ stringify(self.diff().stat(120)).escape_json()")
    " ++ '}',
-      ),
     ),
   )
 )
@@ -467,6 +487,11 @@ calculated 3 times."
   "Wrapper around `'string-trim` that passes-through nil values without error"
   (and str (string-trim str)))
 
+(defun jj--add-face (str face)
+  "Like (propertize str 'font-lock-face face) but composes with existing faces on string."
+  (font-lock-append-text-property 0 (length str) 'font-lock-face face str)
+  str)
+
 (defun jj-parse-log-entries (&optional buf)
   "Get log line pairs from BUF (defaults to `current-buffer').
 
@@ -491,61 +516,124 @@ The results of this fn are fed into `jj--parse-log-entries'."
                           (metadata (json-parse-string metadata-json :object-type 'plist))
                           (optional-diff-stat (plist-get metadata :diff-stat))
                           (short-diff-stat (jj--format-short-diff-stat optional-diff-stat)))
-                     ;; Insert short-diff-stat after short-desc
                      (seq-let (prefix change-id author bookmarks git-head conflict signature empty short-desc commit-id timestamp metadata-json) elems
-                       (list :id (seq-take change-id 8)
-                             :prefix prefix
-                             :line line
-                             :elems (remove nil (list prefix change-id author bookmarks git-head conflict signature empty short-desc short-diff-stat commit-id timestamp))
-                             :author author
-                             :commit-id commit-id
-                             :short-desc short-desc
-                             :long-desc (jj--optional-string-trim (plist-get metadata :long-desc))
-                             :diff-stat (jj--optional-string-trim optional-diff-stat)
-                             :timestamp  timestamp
-                             :bookmarks bookmarks)))
+                       (let ((body-prefix (jj--make-body-prefix prefix "")))
+                         (list :id (seq-take change-id 8)
+                               :prefix prefix
+                               :heading (apply (cdr jj--render-log-entry-function) short-diff-stat body-prefix elems)
+                               :author author
+                               :commit-id commit-id
+                               :long-desc (jj--optional-string-trim (plist-get metadata :long-desc))
+                               :diff-stat (jj--optional-string-trim optional-diff-stat)
+                               :current-working-copy (plist-get metadata :current-working-copy)
+                               :bookmarks bookmarks))))
                    else collect
-                   (list :elems (list line))))))))
+                   (list :heading line)))))))
 
-(defun jj--indent-string (s column)
-  "Insert STRING into the current buffer, indenting each line to COLUMN."
-  (let ((indentation (make-string column ?\s))) ; Create a string of spaces for indentation
-    (mapconcat (lambda (line)
-                 (concat indentation line))
-               (split-string s "\n")
-               "\n"))) ; Join lines with newline, prefixed by indentation
+(defun jj--expand-log-entry-template (template)
+  (cond
+   ((eq template 'multiline)
+    '(change-id author timestamp bookmarks git-head commit-id conflict signature empty newline short-desc diff-stat))
+   ((eq template 'oneline)
+    '(change-id author bookmarks git-head conflict signature empty short-desc commit-id timestamp))
+   ((listp template)
+    template)
+   (t (cons "Invalid jj-log-entry-template" (jj--expand-log-entry-template 'multiline)))))
+
+(defun jj--create-render-log-entry-function (template)
+  (let ((args '(diff-stat body-prefix prefix change-id author bookmarks git-head conflict signature empty short-desc commit-id timestamp metadata-json))
+        (accum '((jj--add-face prefix 'jj-log-graph-fixed-pitch-face))))
+    (dolist (field template)
+      (cond
+       ((eq field 'newline)
+        (push "\n" accum)
+        (push 'body-prefix accum))
+       ((member field args)
+        (push `(when ,field " ") accum)
+        (push field accum))
+       ;; Just render invalid stuff somehow
+       (t (push (format " [%s]" field) accum))))
+    (byte-compile
+     `(lambda (,@args)
+        (propertize (concat ,@(reverse accum)) 'wrap-prefix body-prefix)))))
+
+(defun jj--cache-render-log-entry-function ()
+  "Recreates jj--render-log-entry-function if template has changed"
+  (unless (equal jj-log-entry-template (car jj--render-log-entry-function))
+    (setq jj--render-log-entry-function
+          (cons jj-log-entry-template
+                (jj--create-render-log-entry-function
+                 (jj--expand-log-entry-template jj-log-entry-template))))))
+
+
+(defun jj--make-body-prefix (prefix suffix)
+  "Computes line prefix for lines following first line of the log section.
+It does it by replacing all non-space characters with vertical bar.
+This procedure produces valid graph rendering"
+  (let ((patched-prefix (concat (replace-regexp-in-string "\\S-" "│" prefix) suffix)))
+    (propertize patched-prefix 'font-lock-face 'jj-log-graph-fixed-pitch-face)))
+
+
+;; We need to advice `magit-section-show' and `magit-section-hide' with
+;; adding/removing prefix on show/hid opertions, because otherwise
+;; line-prefix will be applied to lines even when body is invisible
+(defun jj--magit-section-show (section &optional end)
+  (when (eq (oref section type) 'jj-log-entry-section)
+    (let* ((prefix (oref section prefix))
+           (body-prefix (jj--make-body-prefix prefix "   "))
+           (start (oref section content))
+           (end (or end (oref section end)))
+           (inhibit-read-only t))
+      (put-text-property start end 'line-prefix body-prefix)
+      (put-text-property start end 'wrap-prefix body-prefix))))
+(defun jj--magit-section-hide (section)
+  (when (eq (oref section type) 'jj-log-entry-section)
+    (let ((start (oref section content))
+          (end (oref section end))
+          (inhibit-read-only t))
+      (remove-text-properties start end '(line-prefix wrap-prefix)))))
+(advice-add 'magit-section-show :after 'jj--magit-section-show)
+(advice-add 'magit-section-hide :after 'jj--magit-section-hide)
+
 
 (defun jj--log-insert-entry (entry)
-  (let ((hide (not jj--expand-log-entries)))
+  (let* ((hide (not jj--expand-log-entries))
+         (section-start (point))
+         (id (plist-get entry :id))
+         (prefix (plist-get entry :prefix))
+         (heading (plist-get entry :heading)))
     (magit-insert-section section (jj-log-entry-section entry hide)
       (oset section commit-id (plist-get entry :id))
-      (oset section description (plist-get entry :short-desc))
       (oset section bookmarks (plist-get entry :bookmarks))
-      (oset section prefix (plist-get entry :prefix))
-      (magit-insert-heading
-        (string-join (plist-get entry :elems) " "))
+      (oset section prefix prefix)
+      (magit-insert-heading heading)
+      (font-lock-append-text-property section-start (point) 'font-lock-face 'jj-log-graph-face)
+      (when (eq (plist-get entry :current-working-copy) t)
+        (font-lock-append-text-property section-start (point) 'font-lock-face 'jj-working-copy-heading))
       (magit-insert-section-body
-        (let ((indent-column (+ 10 (length (plist-get entry :prefix))))
+        (let ((body-start (point))
               (long-desc (plist-get entry :long-desc))
               (diff-stat (plist-get entry :diff-stat)))
           (when (not (string-empty-p long-desc))
-            (insert (jj--indent-string long-desc indent-column) "\n"))
+            (insert (jj--add-face (concat long-desc "\n") 'jj-log-graph-face)))
           (when (and diff-stat (not (string-empty-p diff-stat)))
-            (insert "\n" (jj--indent-string diff-stat indent-column) "\n")))))))
+            (insert (jj--add-face (concat "\n" diff-stat "\n") 'jj-log-graph-fixed-pitch-face)))
+          (jj--magit-section-show section (point)))))))
 
 (cl-defmethod magit-section-highlight ((section jj-log-graph-section))
   "No-op highlight method to disable highlighting for Log Graph section.")
 
 (defun jj-log-insert-logs ()
   "Insert jj log graph into current buffer."
-
+  (jj--cache-render-log-entry-function)
   (magit-insert-section section (jj-log-graph-section)
     (magit-insert-heading (concat "Log Graph"
                                   (when jj--log-revset (format ": %s" jj--log-revset))))
-    (dolist (entry (jj-parse-log-entries))
-      (if (plist-get entry :id)
-          (jj--log-insert-entry entry)
-        (insert (string-join (plist-get entry :elems) " ") "\n")))))
+    (let ((graph-start (point)))
+      (dolist (entry (jj-parse-log-entries))
+        (if (plist-get entry :id)
+            (jj--log-insert-entry entry)
+          (insert (jj--add-face (concat (plist-get entry :heading) "\n") 'jj-log-graph-fixed-pitch-face)))))))
 
 (defun jj-log-insert-status ()
   "Insert jj status into current buffer."
