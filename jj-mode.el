@@ -1775,11 +1775,13 @@ Tries `jj git remote list' first, then falls back to `git remote'."
   "Show diff for current change or commit at point."
   (interactive)
   (let* ((change-id (jj-get-changeset-at-point))
+         (repo-root jj--repo-root)
          (buffer (get-buffer-create "*jj-diff*"))
          (prev-buffer (current-buffer)))
     (if (not change-id)
         (message "No diff to view at point.  Try again on a changeset.")
       (with-current-buffer buffer
+        (setq default-directory repo-root)
         (let ((inhibit-read-only t))
           (erase-buffer)
           (if change-id
