@@ -567,7 +567,7 @@ The results of this fn are fed into `jj--parse-log-entries'."
                               (short-diff-stat (jj--format-short-diff-stat optional-diff-stat)))
                          (seq-let (prefix change-id author bookmarks git-head conflict signature empty short-desc commit-id timestamp metadata-json) elems
                            (let ((body-prefix (jj--make-body-prefix prefix "")))
-                             (list :id (seq-take change-id 8)
+                             (list :id change-id
                                    :prefix prefix
                                    :heading (apply (cdr jj--render-log-entry-function) short-diff-stat body-prefix elems)
                                    :author author
