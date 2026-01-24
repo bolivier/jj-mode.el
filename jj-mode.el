@@ -560,22 +560,26 @@ The results of this fn are fed into `jj--parse-log-entries'."
                                 (lambda (s) (unless (string-blank-p s) (string-trim s)))
                                 (split-string line "\x1e" ))
                    when (> (length elems) 1) collect
-                   (let* ((metadata-json (car (last elems)))
-                          (metadata (json-parse-string metadata-json :object-type 'plist))
-                          (optional-diff-stat (plist-get metadata :diff-stat))
-                          (short-diff-stat (jj--format-short-diff-stat optional-diff-stat)))
-                     (seq-let (prefix change-id author bookmarks git-head conflict signature empty short-desc commit-id timestamp metadata-json) elems
-                       (let ((body-prefix (jj--make-body-prefix prefix "")))
-                         (list :id (seq-take change-id 8)
-                               :prefix prefix
-                               :heading (apply (cdr jj--render-log-entry-function) short-diff-stat body-prefix elems)
-                               :author author
-                               :commit-id commit-id
-                               :long-desc (jj--optional-string-trim (plist-get metadata :long-desc))
-                               :diff-stat (jj--optional-string-trim optional-diff-stat)
-                               :current-working-copy (plist-get metadata :current-working-copy)
-                               :trunk (plist-get metadata :trunk)
-                               :bookmarks bookmarks))))
+                   (condition-case err
+                       (let* ((metadata-json (car (last elems)))
+                              (metadata (json-parse-string metadata-json :object-type 'plist))
+                              (optional-diff-stat (plist-get metadata :diff-stat))
+                              (short-diff-stat (jj--format-short-diff-stat optional-diff-stat)))
+                         (seq-let (prefix change-id author bookmarks git-head conflict signature empty short-desc commit-id timestamp metadata-json) elems
+                           (let ((body-prefix (jj--make-body-prefix prefix "")))
+                             (list :id (seq-take change-id 8)
+                                   :prefix prefix
+                                   :heading (apply (cdr jj--render-log-entry-function) short-diff-stat body-prefix elems)
+                                   :author author
+                                   :commit-id commit-id
+                                   :long-desc (jj--optional-string-trim (plist-get metadata :long-desc))
+                                   :diff-stat (jj--optional-string-trim optional-diff-stat)
+                                   :current-working-copy (plist-get metadata :current-working-copy)
+                                   :trunk (plist-get metadata :trunk)
+                                   :bookmarks bookmarks))))
+                     (json-parse-error
+                      ;; Skip lines with invalid JSON, specifically, zz root()
+                      nil))
                    else collect
                    (list :heading line)))))))
 
