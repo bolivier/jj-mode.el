@@ -1366,19 +1366,25 @@ With prefix ALL, include remote bookmarks."
     (funcall jj-log-display-function buf)))
 
 ;;;###autoload
-(defun jj-bookmark-move (commit names)
-  "Move existing bookmark(s) NAMES to COMMIT."
-  (interactive
-   (let* ((existing (jj--get-bookmark-names))
-          (crm-separator (or (bound-and-true-p crm-separator) ", *"))
-          (names (completing-read-multiple "Move bookmark(s): " existing nil t))
-          (at (or (jj-get-changeset-at-point) "@"))
-          (rev (read-string (format "Target revision (default %s): " at) nil nil at)))
-     (list rev names)))
-  (when names
-    (apply #'jj--run-command (append '("bookmark" "move" "-t" ) (list commit) names))
-    (jj-log-refresh)
-    (message "Moved bookmark(s) to %s: %s" commit (string-join names ", "))))
+(defun jj-bookmark-move (&optional to name)
+  "Move existing bookmark NAME to changeset TO.
+TO defaults to the changeset-at-point or to @ when not passed in.
+NAME is read interactively when not passed in."
+  (interactive)
+  (let* ((to (or to (jj-get-changeset-at-point) "@"))
+         (name (or name
+                   (let* ((existing (jj--get-bookmark-names)))
+                     (completing-read "Move bookmark: " existing nil t))))
+         (cmd-args (append '("bookmark" "move" "--allow-backwards")
+                           (list "--to" to)
+                           (list name))))
+    (let ((result (apply #'jj--run-command cmd-args)))
+      (when (jj--handle-command-result cmd-args result
+                                       (format "Moved bookmark %s to %s"
+                                               name
+                                               to)
+                                       "Failed to move bookmark")
+        (jj-log-refresh)))))
 
 ;;;###autoload
 (defun jj-bookmark-rename (old new)
@@ -1907,8 +1913,8 @@ Tries `jj git remote list' first, then falls back to `git remote'."
       (message "No more changesets"))))
 
 (defun jj-get-changeset-at-point ()
-  "Get the changeset ID at point."  
-  (let ((id-type (if (transient-arg-value "--use-commit-id" (transient-args 'jj-mode-transient)) 'commit-id 'change-id)))   
+  "Get the changeset ID at point."
+  (let ((id-type (if (transient-arg-value "--use-commit-id" (transient-args 'jj-mode-transient)) 'commit-id 'change-id)))
     (when-let ((section (magit-current-section)))
       (cond
        ((and (slot-exists-p section id-type)
