@@ -1852,7 +1852,7 @@ Tries `jj git remote list' first, then falls back to `git remote'."
           ;; This is a little silly: remove all ansi-colors after the changeset header
           ;; `jj--run-command-color` worked so hard to add them...
           (goto-char (point-min))
-          (when (re-search-forward "^diff --git")
+          (when (re-search-forward "^diff --git" nil t)
             (beginning-of-line)
             (remove-text-properties (point) (point-max) '(font-lock-face face))
             ;; jj show outputs spaces on some empty lines; Remove them so they are not
