@@ -679,6 +679,8 @@ This procedure produces valid graph rendering"
 
 (cl-defmethod magit-section-highlight ((section jj-log-graph-section))
   "No-op highlight method to disable highlighting for Log Graph section.")
+(cl-defmethod magit-section-highlight ((section jj-hunk-section))
+  "No-op highlight method to disable highlighting for diff hunk section.")
 
 (defun jj-log-insert-logs ()
   "Insert jj log graph into current buffer."
@@ -703,7 +705,7 @@ This procedure produces valid graph rendering"
 
 (defun jj-log-insert-diff ()
   "Insert jj diff with hunks into current buffer."
-  (let ((diff-output (jj--run-command-color "diff" "--git")))
+  (let ((diff-output (jj--run-command "diff" "--git")))
     (when (and diff-output (not (string-empty-p diff-output)))
       (magit-insert-section (jj-diff-section)
         (magit-insert-heading "Working Copy Changes")
@@ -789,13 +791,15 @@ This procedure produces valid graph rendering"
             (insert "\n")
             ;; Insert the hunk content
             (dolist (line (cdr lines))
-              (cond
-               ((string-prefix-p "+" line)
-                (insert (propertize line 'face 'magit-diff-added) "\n"))
-               ((string-prefix-p "-" line)
-                (insert (propertize line 'face 'magit-diff-removed) "\n"))
-               (t
-                (insert (propertize line 'face 'magit-diff-context) "\n"))))))))))
+              (let ((line-start (point))
+                    (face (cond
+                           ((string-prefix-p "+" line) 'magit-diff-added)
+                           ((string-prefix-p "-" line) 'magit-diff-removed)
+                           (t 'magit-diff-context))))
+                (insert line "\n")
+                (font-lock-append-text-property line-start (point) 'font-lock-face face)
+                (when (not (string-empty-p line))
+                  (font-lock-append-text-property line-start (1+ line-start) 'font-lock-face 'fixed-pitch))))))))))
 
 ;;;###autoload
 (cl-defun jj-log (&key revset expand-entries)
@@ -913,6 +917,7 @@ This procedure produces valid graph rendering"
               (file (oref section file))
               (repo-root (jj--root)))
     (let ((full-file-path (expand-file-name file repo-root)))
+      (xref-push-marker-stack)
       (find-file full-file-path))))
 
 (defun jj-diffedit-emacs ()
@@ -1844,8 +1849,16 @@ Tries `jj git remote list' first, then falls back to `git remote'."
           (if change-id
               (insert (jj--run-command-color "show" "-r" change-id))
             (insert (jj--run-command-color "show")))
+          ;; This is a little silly: remove all ansi-colors after the changeset header
+          ;; `jj--run-command-color` worked so hard to add them...
+          (goto-char (point-min))
+          (when (re-search-forward "^diff --git")
+            (beginning-of-line)
+            (remove-text-properties (point) (point-max) '(font-lock-face face))
+            ;; jj show outputs spaces on some empty lines; Remove them so they are not
+            ;; highlighted when `show-trailing-whitespace' is true
+            (replace-regexp "^ $" "" nil (point) (point-max)))
           (diff-mode)
-          (ansi-color-apply-on-region (point-min) (point-max))
           (goto-char (point-min))
           ;; Make buffer read-only
           (setq buffer-read-only t)
