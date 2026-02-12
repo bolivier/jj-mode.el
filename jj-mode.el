@@ -1360,19 +1360,32 @@ This procedure produces valid graph rendering"
                                              "Failed to forget bookmark")
               (jj-log-refresh))))))))
 
-(defun jj-bookmark-track ()
-  "Track remote bookmark(s)."
-  (interactive)
+(defun jj-bookmark-track (&optional args)
+  "Track remote bookmark(s).
+When the selected bookmark is local-only (@git), use the transient
+remote argument or prompt for one."
+  (interactive (list (transient-args 'jj-bookmark-transient--internal)))
   (let* ((remote-bookmarks (jj--get-bookmark-names t))
          (choice (and remote-bookmarks (completing-read "Track remote bookmark: " remote-bookmarks nil t))))
     (if (not choice)
         (message "No remote bookmarks found")
-      (let ((default-directory (jj--root)))
-        (let ((result (jj--run-command "bookmark" "track" choice)))
-          (when (jj--handle-command-result (list "bookmark" "track" choice) result
-                                           (format "Tracking bookmark '%s'" choice)
-                                           "Failed to track bookmark")
-            (jj-log-refresh)))))))
+      (if (string-suffix-p "@git" choice)
+          ;; Local-only bookmark — track on a real remote
+          (let* ((name (substring choice 0 (- (length choice) (length "@git"))))
+                 (remote-arg (and args (seq-find (lambda (a) (string-prefix-p "--remote=" a)) args)))
+                 (remote (if remote-arg
+                             (substring remote-arg (length "--remote="))
+                           (jj--prompt-for-remote))))
+            (when remote
+              (when (jj--bookmark-track-on-remote name remote)
+                (jj-log-refresh))))
+        ;; Already on a real remote — track as-is
+        (let ((default-directory (jj--root)))
+          (let ((result (jj--run-command "bookmark" "track" choice)))
+            (when (jj--handle-command-result (list "bookmark" "track" choice) result
+                                             (format "Tracking bookmark '%s'" choice)
+                                             "Failed to track bookmark")
+              (jj-log-refresh))))))))
 
 ;;;###autoload
 (defun jj-bookmark-list (&optional all)

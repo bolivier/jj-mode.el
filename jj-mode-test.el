@@ -698,7 +698,8 @@ Each call to process-file pops the next value.  EXIT-CODE is constant."
   "Bookmark set with name and revision."
   (jj-test-with-mock-commands "" 0
     (cl-letf (((symbol-function 'jj-log-refresh) #'ignore)
-              ((symbol-function 'jj--root) (lambda () "/tmp/repo/")))
+              ((symbol-function 'jj--root) (lambda () "/tmp/repo/"))
+              ((symbol-function 'jj--prompt-for-remote) (lambda () nil)))
       (jj-bookmark-set "main" "abc123" nil)
       (let ((args (jj-test--get-last-command-args)))
         (should (member "bookmark" args))
@@ -921,7 +922,8 @@ Each call to process-file pops the next value.  EXIT-CODE is constant."
   (jj-test-with-mock-commands "" 0
     (cl-letf (((symbol-function 'jj-get-changeset-at-point) (lambda () "abc123"))
               ((symbol-function 'read-string) (lambda (&rest _) "my-bookmark"))
-              ((symbol-function 'jj-log-refresh) #'ignore))
+              ((symbol-function 'jj-log-refresh) #'ignore)
+              ((symbol-function 'jj--prompt-for-remote) (lambda () nil)))
       (jj-bookmark-create)
       (let ((args (jj-test--get-last-command-args)))
         (should (member "bookmark" args))
@@ -951,7 +953,8 @@ Each call to process-file pops the next value.  EXIT-CODE is constant."
   "jj-bookmark-create with empty name does nothing."
   (jj-test-with-mock-commands "" 0
     (cl-letf (((symbol-function 'jj-get-changeset-at-point) (lambda () "abc123"))
-              ((symbol-function 'read-string) (lambda (&rest _) "")))
+              ((symbol-function 'read-string) (lambda (&rest _) ""))
+              ((symbol-function 'jj--prompt-for-remote) (lambda () nil)))
       (jj-bookmark-create)
       ;; No command should have been issued (only the mock capture list)
       (should (= (jj-test--command-count) 0)))))
