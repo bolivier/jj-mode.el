@@ -343,7 +343,7 @@ if(self.root(),
                 (or (string-match-p "Refusing to push" error-msg)
                     (string-match-p "would create new heads" error-msg)
                     (string-match-p "new bookmark" error-msg)))
-           "Use --allow-new flag to push new bookmarks.")
+           "Track bookmarks on a remote first: jj bookmark track NAME --remote REMOTE")
           ((and (string= command-name "git") (string-match-p "authentication" error-msg))
            "Check your git credentials and remote repository access.")
           (t "Check 'jj help' or enable debug mode (M-x customize-variable jj-debug) for more info."))))
@@ -436,6 +436,21 @@ When ALL-REMOTES is non-nil, include remote bookmarks formatted as NAME@REMOTE."
                        (list "-T" template))))
     (delete-dups (split-string (apply #'jj--run-command args) "\n" t))))
 
+(defun jj--bookmark-track-on-remote (bookmark-name remote)
+  "Track BOOKMARK-NAME on REMOTE."
+  (let ((result (jj--run-command "bookmark" "track" bookmark-name "--remote" remote)))
+    (jj--handle-command-result
+     (list "bookmark" "track" bookmark-name "--remote" remote) result
+     (format "Tracking '%s' on '%s'" bookmark-name remote)
+     (format "Failed to track '%s' on '%s'" bookmark-name remote))))
+
+(defun jj--prompt-for-remote ()
+  "Prompt user to select a remote for bookmark tracking.
+Returns remote name or nil if empty."
+  (let* ((remotes (jj--get-git-remotes))
+         (choice (completing-read "Track on remote (empty for none): " remotes nil nil)))
+    (unless (string-empty-p choice) choice)))
+
 (defun jj--handle-push-result (cmd-args result success-msg)
   "Enhanced push result handler with bookmark analysis."
   (let ((trimmed-result (string-trim result)))
@@ -453,9 +468,9 @@ When ALL-REMOTES is non-nil, include remote bookmarks formatted as NAME@REMOTE."
       ;; Extract bookmark names that couldn't be pushed
       (let ((bookmark-names (jj--extract-bookmark-names trimmed-result)))
         (if bookmark-names
-            (message "💡 Use 'jj git push --allow-new' to push new bookmarks: %s"
+            (message "💡 Track bookmarks on a remote first: jj bookmark track NAME --remote REMOTE: %s"
                      (string-join bookmark-names ", "))
-          (message "💡 Use 'jj git push --allow-new' to push new bookmarks")))
+          (message "💡 Track bookmarks on a remote first: jj bookmark track NAME --remote REMOTE")))
       nil)
 
      ;; Check for authentication issues
@@ -1296,14 +1311,24 @@ This procedure produces valid graph rendering"
             (jj-log-refresh)
             (back-to-indentation))))))
 
-(defun jj-bookmark-create ()
-  "Create a new bookmark."
-  (interactive)
+(defun jj-bookmark-create (&optional args)
+  "Create a new bookmark and optionally track on a remote."
+  (interactive (list (transient-args 'jj-bookmark-transient--internal)))
   (let* ((change-id (or (jj-get-changeset-at-point) "@"))
-         (name (read-string "Bookmark name: ")))
+         (name (read-string "Bookmark name: "))
+         (remote-arg (and args (seq-find (lambda (a) (string-prefix-p "--remote=" a)) args)))
+         (remote (if remote-arg
+                     (substring remote-arg (length "--remote="))
+                   (jj--prompt-for-remote))))
     (unless (string-empty-p name)
-      (jj--run-command "bookmark" "create" name "-r" change-id)
-      (jj-log-refresh))))
+      (let ((result (jj--run-command "bookmark" "create" name "-r" change-id)))
+        (when (jj--handle-command-result
+               (list "bookmark" "create" name "-r" change-id) result
+               (format "Created bookmark '%s'" name)
+               "Failed to create bookmark")
+          (when remote
+            (jj--bookmark-track-on-remote name remote))
+          (jj-log-refresh))))))
 
 (defun jj-bookmark-delete ()
   "Delete a bookmark (propagates on push)."
@@ -1409,12 +1434,21 @@ ARGS can be transient related infix, for example
           (rev (read-string (format "Target revision (default %s): " at) nil nil at)))
      (append (list name rev) (list (transient-args 'jj-bookmark-transient--internal)))))
   (let* ((default-directory (jj--root))
+         (existing (jj--get-bookmark-names))
+         (is-new (not (member name existing)))
          (allow-backwards (when (transient-arg-value "--allow-backwards" args) "--allow-backwards"))
          (cmd-args (list "bookmark" "set" name "-r" commit allow-backwards)))
     (let ((result (apply #'jj--run-command cmd-args)))
       (when (jj--handle-command-result cmd-args result
                                        (format "Set bookmark '%s' to %s" name commit)
                                        "Failed to set bookmark")
+        (when is-new
+          (let* ((remote-arg (and args (seq-find (lambda (a) (string-prefix-p "--remote=" a)) args)))
+                 (remote (if remote-arg
+                             (substring remote-arg (length "--remote="))
+                           (jj--prompt-for-remote))))
+            (when remote
+              (jj--bookmark-track-on-remote name remote))))
         (jj-log-refresh)))))
 
 ;;;###autoload
@@ -1455,7 +1489,8 @@ ARGS can be transient related infix, for example
   :transient-suffix 'transient--do-exit
   :transient-non-suffix t
   ["Arguments"
-   ("-B" "Allow backwards" "--allow-backwards")]
+   ("-B" "Allow backwards" "--allow-backwards")
+   ("-R" "Remote" "--remote=" :choices jj--get-git-remotes)]
   ["Bookmark Operations"
    [
     ("l" "List bookmarks" jj-bookmark-list
