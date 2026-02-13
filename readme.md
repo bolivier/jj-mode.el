@@ -7,7 +7,7 @@ interact with JJ repositories from within Emacs.
 ## Features
 
 - **Magit-style log viewer** with collapsible sections and syntax highlighting
-- **Interactive rebase** with visual source/destination selection via transients
+- **Interactive rebase** with visual source/onto selection via transients
 - **Bookmark management** with create, abandon, forget, track, and tug operations
 - **Commit and describe** with dedicated message buffers and window management
 - **Diff viewing** with file and hunk-level navigation
@@ -77,7 +77,7 @@ buffer (`*jj-log:project-name*`).
 #### Advanced Operations
 - `r` - Rebase transient menu
   - `s` - Set rebase source
-  - `d` - Toggle rebase destination
+  - `o` - Toggle rebase onto target
   - `r` - Execute rebase
   - `c` - Clear selections
 - `b` - Bookmark transient menu

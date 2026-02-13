@@ -308,7 +308,7 @@ if(self.root(),
           ((string-match-p "nothing to squash" error-msg)
            "Select a different commit that has changes to squash.")
           ((string-match-p "would create a loop" error-msg)
-           "Check your rebase selections - source and destinations create a cycle.")
+           "Check your rebase selections - source and onto targets create a cycle.")
           ((string-match-p "No changes" error-msg)
            "No changes to commit. Make some changes first.")
           ((and (string= command-name "git")
@@ -360,7 +360,7 @@ if(self.root(),
 
        ;; Rebase loop detection
        ((string-match-p "would create a loop\\|circular dependency" trimmed-result)
-        (message "💡 Check your rebase source and destinations for cycles"))
+        (message "💡 Check your rebase source and onto targets for cycles"))
 
        ;; Authentication/permission issues
        ((string-match-p "authentication\\|permission denied" trimmed-result)
@@ -1952,27 +1952,27 @@ Tries `jj git remote list' first, then falls back to `git remote'."
 (defvar-local jj-rebase-source nil
   "Currently selected source commit for rebase.")
 
-(defvar-local jj-rebase-destinations nil
-  "List of currently selected destination commits for rebase.")
+(defvar-local jj-rebase-onto-targets nil
+  "List of currently selected onto target commits for rebase.")
 
 (defvar-local jj-rebase-source-overlay nil
   "Overlay for highlighting the selected source commit.")
 
-(defvar-local jj-rebase-destination-overlays nil
-  "List of overlays for highlighting selected destination commits.")
+(defvar-local jj-rebase-onto-overlays nil
+  "List of overlays for highlighting selected onto target commits.")
 
 ;;;###autoload
 (defun jj-rebase-clear-selections ()
   "Clear all rebase selections and overlays."
   (interactive)
   (setq jj-rebase-source nil
-        jj-rebase-destinations nil)
+        jj-rebase-onto-targets nil)
   (when jj-rebase-source-overlay
     (jj--delete-overlay jj-rebase-source-overlay)
     (setq jj-rebase-source-overlay nil))
-  (dolist (overlay jj-rebase-destination-overlays)
+  (dolist (overlay jj-rebase-onto-overlays)
     (jj--delete-overlay overlay))
-  (setq jj-rebase-destination-overlays nil)
+  (setq jj-rebase-onto-overlays nil)
   (message "Cleared all rebase selections"))
 
 ;;;###autoload
@@ -1994,54 +1994,54 @@ Tries `jj git remote list' first, then falls back to `git remote'."
     (message "Set source: %s" change-id)))
 
 ;;;###autoload
-(defun jj-rebase-toggle-destination ()
-  "Toggle the commit at point as a rebase destination."
+(defun jj-rebase-toggle-onto ()
+  "Toggle the commit at point as a rebase onto target."
   (interactive)
   (when-let ((change-id (jj-get-changeset-at-point))
              (section (magit-current-section)))
-    (if (member change-id jj-rebase-destinations)
-        ;; Remove from destinations
+    (if (member change-id jj-rebase-onto-targets)
+        ;; Remove from onto targets
         (progn
-          (setq jj-rebase-destinations (remove change-id jj-rebase-destinations))
+          (setq jj-rebase-onto-targets (remove change-id jj-rebase-onto-targets))
           ;; Remove overlay
-          (dolist (overlay jj-rebase-destination-overlays)
+          (dolist (overlay jj-rebase-onto-overlays)
             (when (and (>= (overlay-start overlay) (oref section start))
                        (<= (overlay-end overlay) (oref section end)))
               (jj--delete-overlay overlay)
-              (setq jj-rebase-destination-overlays (remove overlay jj-rebase-destination-overlays))))
-          (message "Removed destination: %s" change-id))
-      ;; Add to destinations
-      (push change-id jj-rebase-destinations)
+              (setq jj-rebase-onto-overlays (remove overlay jj-rebase-onto-overlays))))
+          (message "Removed onto target: %s" change-id))
+      ;; Add to onto targets
+      (push change-id jj-rebase-onto-targets)
       ;; Create overlay for visual indication
       (let ((overlay (jj--make-commit-overlay
-                      section " [DEST]"
+                      section " [ONTO]"
                       '(:background "dark blue" :foreground "white" :extend t))))
-        (push overlay jj-rebase-destination-overlays)
-        (message "Added destination: %s" change-id)))))
+        (push overlay jj-rebase-onto-overlays)
+        (message "Added onto target: %s" change-id)))))
 
 ;;;###autoload
 (defun jj-rebase-execute ()
-  "Execute rebase with selected source and destinations."
+  "Execute rebase with selected source and onto targets."
   (interactive)
-  (if (and jj-rebase-source jj-rebase-destinations)
+  (if (and jj-rebase-source jj-rebase-onto-targets)
       (when (yes-or-no-p (format "Rebase %s -> %s? "
                                  jj-rebase-source
-                                 (string-join jj-rebase-destinations ", ")))
-        (let* ((dest-args (apply 'append (mapcar (lambda (dest) (list "-d" dest)) jj-rebase-destinations)))
+                                 (string-join jj-rebase-onto-targets ", ")))
+        (let* ((dest-args (apply 'append (mapcar (lambda (dest) (list "--onto" dest)) jj-rebase-onto-targets)))
                (all-args (append (list "rebase" "-s" jj-rebase-source) dest-args))
                (progress-msg (format "Rebasing %s onto %s"
                                      jj-rebase-source
-                                     (string-join jj-rebase-destinations ", ")))
+                                     (string-join jj-rebase-onto-targets ", ")))
                (success-msg (format "Rebase completed: %s -> %s"
                                     jj-rebase-source
-                                    (string-join jj-rebase-destinations ", "))))
+                                    (string-join jj-rebase-onto-targets ", "))))
           (jj--message-with-log "%s..." progress-msg)
           (let ((result (apply #'jj--run-command all-args)))
             (if (jj--handle-command-result all-args result success-msg "Rebase failed")
                 (progn
                   (jj-rebase-clear-selections)
                   (jj-log-refresh))))))
-    (jj--message-with-log "Please select source (s) and at least one destination (d) first")))
+    (jj--message-with-log "Please select source (s) and at least one onto target (o) first")))
 
 ;; Transient rebase menu
 ;;;###autoload
@@ -2066,9 +2066,9 @@ Tries `jj git remote list' first, then falls back to `git remote'."
      (concat "JJ Rebase"
              (when jj-rebase-source
                (format " | Source: %s" jj-rebase-source))
-             (when jj-rebase-destinations
-               (format " | Destinations: %s"
-                       (string-join jj-rebase-destinations ", ")))))
+             (when jj-rebase-onto-targets
+               (format " | Onto: %s"
+                       (string-join jj-rebase-onto-targets ", ")))))
    :class transient-columns
    ["Selection"
     ("s" "Set source" jj-rebase-set-source
@@ -2077,21 +2077,21 @@ Tries `jj git remote list' first, then falls back to `git remote'."
                         (format "Set source (current: %s)" jj-rebase-source)
                       "Set source"))
      :transient t)
-    ("d" "Toggle destination" jj-rebase-toggle-destination
+    ("o" "Toggle onto target" jj-rebase-toggle-onto
      :description (lambda ()
-                    (format "Toggle destination (%d selected)"
-                            (length jj-rebase-destinations)))
+                    (format "Toggle onto target (%d selected)"
+                            (length jj-rebase-onto-targets)))
      :transient t)
     ("c" "Clear selections" jj-rebase-clear-selections
      :transient t)]
    ["Actions"
     ("r" "Execute rebase" jj-rebase-execute
      :description (lambda ()
-                    (if (and jj-rebase-source jj-rebase-destinations)
+                    (if (and jj-rebase-source jj-rebase-onto-targets)
                         (format "Rebase %s -> %s"
                                 jj-rebase-source
-                                (string-join jj-rebase-destinations ", "))
-                      "Execute rebase (select source & destinations first)"))
+                                (string-join jj-rebase-onto-targets ", "))
+                      "Execute rebase (select source & onto targets first)"))
      :transient nil)
 
     ("q" "Quit" transient-quit-one)]])
