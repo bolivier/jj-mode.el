@@ -670,7 +670,9 @@ This procedure produces valid graph rendering"
          (id (plist-get entry :id))
          (prefix (plist-get entry :prefix))
          (heading (plist-get entry :heading)))
-    (magit-insert-section section (jj-log-entry-section entry hide)
+
+    (magit-insert-section section
+      (jj-log-entry-section entry hide)
       (oset section change-id (plist-get entry :id))
       (oset section bookmarks (plist-get entry :bookmarks))
       (oset section commit-id (plist-get entry :commit-id))
@@ -700,7 +702,8 @@ This procedure produces valid graph rendering"
 (defun jj-log-insert-logs ()
   "Insert jj log graph into current buffer."
   (jj--cache-render-log-entry-function)
-  (magit-insert-section section (jj-log-graph-section)
+  (magit-insert-section section
+    (jj-log-graph-section)
     (magit-insert-heading (concat "Log Graph"
                                   (when jj--log-revset (format ": %s" jj--log-revset))))
     (let ((graph-start (point)))
@@ -761,7 +764,8 @@ This procedure produces valid graph rendering"
 
 (defun jj--insert-file-section (file lines)
   "Insert a file section with its hunks."
-  (magit-insert-section file-section (jj-file-section)
+  (magit-insert-section file-section
+    (jj-file-section)
     (oset file-section file file)
     (insert (propertize (concat "modified   " file "\n")
                         'face 'magit-filename))
@@ -796,7 +800,8 @@ This procedure produces valid graph rendering"
       (when (string-match "^\\(@@.*@@\\)\\(.*\\)$" header-line)
         (let ((header (match-string 1 header-line))
               (context (match-string 2 header-line)))
-          (magit-insert-section hunk-section (jj-hunk-section)
+          (magit-insert-section hunk-section
+            (jj-hunk-section)
             (oset hunk-section file file)
             (oset hunk-section header header)
             ;; Insert the hunk header
