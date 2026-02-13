@@ -2,8 +2,8 @@
 
 ;; Author: Brandon Olivier
 ;; Keywords: jj, vcs, jujutsu, mode
-;; Package-Requires: ((emacs "28.1"))
-;; Version: 0.0.1
+;; Package-Requires: ((emacs "28.1") (magit "3.0.0") (transient "0.4.0"))
+;; Version: 1.0.0
 ;; Homepage: https://github.com/bolivier/jj-mode.el
 
 ;;; Commentary:

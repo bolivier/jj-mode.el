@@ -17,8 +17,8 @@ interact with JJ repositories from within Emacs.
 
 ## Requirements
 
-- Emacs 26.1 or later
-- [Jujutsu (jj)](https://github.com/jj-vcs/jj) installed and in PATH
+- Emacs 28.1 or later
+- [Jujutsu (jj)](https://github.com/jj-vcs/jj) 0.37.0 or later installed and in PATH
 - [magit](https://magit.vc/) (for section management and UI components)
 - [transient](https://github.com/magit/transient) (usually bundled with magit)
 
@@ -65,6 +65,7 @@ buffer (`*jj-log:project-name*`).
 - `g` - Refresh log
 - `c` - Commit (opens message buffer)
 - `d` - Describe changeset at point (opens message buffer)
+- `D` - View diff for changeset
 - `e` - Edit changeset (jj edit)
 - `u` - Undo last operation
 - `s` - Squash
@@ -84,9 +85,8 @@ buffer (`*jj-log:project-name*`).
   - `a` - Abandon bookmark
   - `f` - Forget bookmark
   - `t` - Track remote bookmark
-  - `T` - Tug (jj tug)
+  - `T` - Tug (pull closest bookmark to current changeset)
 - `G` - Git operations transient
-  - `-n` - Toggle --allow-new flag
   - `-b` - Set bookmark to push
   - `p` - Push
   - `f` - Fetch
@@ -100,22 +100,22 @@ When editing commit/describe messages:
 - `C-c C-c` - Finish and execute
 - `C-c C-k` - Cancel
 
-### Workflow Example
-
-1. `M-x jj-log` - Open JJ interface
-2. Navigate to desired changeset with `j`/`k`
-3. `c` - Commit current changes
-4. Edit message, `C-c C-c` to finish
-5. `r` - Open rebase menu, select source with `s`, destinations with `d`, execute with `r`
-6. `b` - Manage bookmarks as needed
-7. `G` `p` - Push to remote
-
 ## Configuration
 
 ```lisp
 ;; Customize jj executable path if needed
 (setq jj-executable "/path/to/jj")
 ```
+
+## Upstream Breaking Changes
+
+Since JJ is such a young project, there are sometimes breaking changes. Since
+the project is so young, we will try to incorporate changes quickly. If you're
+unable to update your version of jj to handle breaking changes upstream, it's
+recommended that you pin jj-mode to a known good SHA. 
+
+In addition to breaking changes, jj may introduce new mechanisms to manage a
+repo. jj-mode will likewise migrate to those quickly.
 
 ## Contributing
 
