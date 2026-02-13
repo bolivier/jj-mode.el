@@ -48,6 +48,23 @@ Clone this repository and add it to your load path:
 (require 'jj-mode)
 ```
 
+## Evil Mode
+
+jj-mode doesn't ship with support for evil mode by default. To make it work you
+need to put this snippet in your init config
+
+```emacs-lisp
+(evil-make-overriding-map jj-mode-map 'normal)
+ 
+```
+
+Or, in Doom Emacs
+
+```emacs-lisp
+(after! jj-mode
+  (evil-make-overriding-map jj-mode-map 'normal))
+```
+
 ## Usage
 
 Start with `M-x jj-log` to open the main interface. Each project gets its own
