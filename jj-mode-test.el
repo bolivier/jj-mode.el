@@ -675,24 +675,12 @@ Each call to process-file pops the next value.  EXIT-CODE is constant."
   "Bookmark move with commit and bookmark names."
   (jj-test-with-mock-commands "" 0
     (cl-letf (((symbol-function 'jj-log-refresh) #'ignore))
-      (jj-bookmark-move "abc123" '("main"))
+      (jj-bookmark-move "abc123" "main")
       (let ((args (jj-test--get-last-command-args)))
         (should (member "bookmark" args))
         (should (member "move" args))
         (should (member "abc123" args))
         (should (member "main" args))))))
-
-(ert-deftest jj-test-bookmark-move/multiple-names ()
-  "Bookmark move with multiple bookmark names."
-  (jj-test-with-mock-commands "" 0
-    (cl-letf (((symbol-function 'jj-log-refresh) #'ignore))
-      (jj-bookmark-move "abc123" '("main" "dev"))
-      (let ((args (jj-test--get-last-command-args)))
-        (should (member "bookmark" args))
-        (should (member "move" args))
-        (should (member "abc123" args))
-        (should (member "main" args))
-        (should (member "dev" args))))))
 
 (ert-deftest jj-test-bookmark-set/basic ()
   "Bookmark set with name and revision."
