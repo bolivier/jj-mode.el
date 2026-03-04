@@ -47,7 +47,7 @@
   "Get the jj version as a list of numbers (major minor patch)."
   (unless jj--version
     (let* ((version-string (jj--run-command "--version"))
-           (version-match (string-match "jj \\([0-9]+\\)\\.\\([0-9]+\\)\\.\\([0-9]+\\)" version-string)))
+           (version-match (string-match "jj [^0-9]*\\([0-9]+\\)\\.\\([0-9]+\\)\\.\\([0-9]+\\)" version-string)))
       (when version-match
         (setq jj--version (list (string-to-number (match-string 1 version-string))
                                 (string-to-number (match-string 2 version-string))
