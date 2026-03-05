@@ -143,6 +143,9 @@ Each call to process-file pops the next value.  EXIT-CODE is constant."
 (defconst jj-test--version-string-prefixed "jj google-0.38.0-abcxyz\n"
   "Real `jj --version` output from a binary with prefixed version string.")
 
+(defconst jj-test--version-string-current "jj 0.39.0\n"
+  "Real current `jj --version` output.")
+
 (defconst jj-test--error-no-revision "Error: No such revision: abc123\n"
   "Error output for missing revision.")
 
@@ -269,6 +272,13 @@ Each call to process-file pops the next value.  EXIT-CODE is constant."
     (let ((jj--version nil))
       (let ((version (jj--get-version)))
         (should (equal version '(0 38 0)))))))
+
+(ert-deftest jj-test-get-version/skips-prefix ()
+  "Parses a different plain version string into (major minor patch) list."
+  (jj-test-with-mock-commands jj-test--version-string-current 0
+    (let ((jj--version nil))
+      (let ((version (jj--get-version)))
+        (should (equal version '(0 39 0)))))))
 
 (ert-deftest jj-test-get-version/caches-result ()
   "Version is cached after first call."
