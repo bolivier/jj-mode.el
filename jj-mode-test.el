@@ -273,7 +273,7 @@ Each call to process-file pops the next value.  EXIT-CODE is constant."
       (let ((version (jj--get-version)))
         (should (equal version '(0 38 0)))))))
 
-(ert-deftest jj-test-get-version/skips-prefix ()
+(ert-deftest jj-test-get-version/parses-newer-version ()
   "Parses a different plain version string into (major minor patch) list."
   (jj-test-with-mock-commands jj-test--version-string-current 0
     (let ((jj--version nil))
