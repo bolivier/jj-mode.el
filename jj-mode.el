@@ -1780,6 +1780,15 @@ Tries `jj git remote list' first, then falls back to `git remote'."
       (when (jj--handle-push-result cmd-args result success-msg)
         (jj-log-refresh)))))
 
+(defun jj-git-push-change-at-point (args)
+  "Push the change at point with ARGS."
+  (interactive (list (transient-args 'jj-git-push-transient)))
+  (let ((change (jj-get-changeset-at-point)))
+    (unless change
+      (user-error "No change at point"))
+    (let ((filtered-args (seq-remove (lambda (arg) (string-prefix-p "--change=" arg)) args)))
+      (jj-git-push (cons (concat "--change=" change) filtered-args)))))
+
 (defun jj-commit ()
   "Open commit message buffer."
   (interactive)
@@ -2154,6 +2163,7 @@ Tries `jj git remote list' first, then falls back to `git remote'."
            ("-N" "Named X=REV" "--named=")
            ("-y" "Dry run" "--dry-run")]
           [("p" "Push" jj-git-push :transient nil)
+           ("c" "Push change at point" jj-git-push-change-at-point :transient nil)
            ("q" "Quit" transient-quit-one)]])
 
 ;; Fetch transient and command
