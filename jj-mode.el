@@ -821,10 +821,17 @@ This procedure produces valid graph rendering"
                 (when (not (string-empty-p line))
                   (font-lock-append-text-property line-start (1+ line-start) 'font-lock-face 'fixed-pitch))))))))))
 
+(defvar jj--revset-history nil
+  "History for revsets.")
+
 ;;;###autoload
 (cl-defun jj-log (&key revset expand-entries)
-  "Display jj log in a magit-style buffer."
-  (interactive)
+  "Display jj log in a magit-style buffer.
+
+Interactively, display Jujutsu's default revset. With a prefix argument,
+prompt for REVSET."
+  (interactive (when current-prefix-arg
+                 (list :revset (read-string "Revset: " nil 'jj--revset-history))))
   (let* ((repo-root (jj--root))
          (buffer-name (format "*jj-log:%s*" (file-name-nondirectory (directory-file-name repo-root))))
          (buffer (get-buffer-create buffer-name)))
@@ -838,7 +845,7 @@ This procedure produces valid graph rendering"
         (setq-local jj--log-revset revset)
         (setq-local jj--expand-log-entries expand-entries)
         (setq-local jj--repo-root repo-root)
-        (magit-insert-section (jjbuf)  ; Root section wrapper
+        (magit-insert-section (jjbuf)   ; Root section wrapper
           (magit-insert-section-body
             (magit-run-section-hook 'jj-log-sections-hook))
           (insert "\n"))
