@@ -94,6 +94,15 @@ The function must accept one argument: the buffer to display."
           (sexp :tag "Custom field list"))
   :group 'jj)
 
+(defun jj--turn-on-auto-fill ()
+  "Enable `auto-fill-mode'."
+  (auto-fill-mode 1))
+
+(defcustom jj-message-buffer-setup-hook '(jj--turn-on-auto-fill)
+  "Hook run after setting up a message buffer."
+  :type 'hook
+  :group 'jj)
+
 (defvar jj--render-log-entry-function nil
   "Cached function for rendering log entry template")
 
@@ -1814,6 +1823,7 @@ Tries `jj git remote list' first, then falls back to `git remote'."
       (setq-local jj--window-config window-config)
       (local-set-key (kbd "C-c C-c") 'jj--message-finish)
       (local-set-key (kbd "C-c C-k") 'jj--message-abort)
+      (run-hooks 'jj-message-buffer-setup-hook)
       (when initial-desc
         (insert initial-desc))
       (insert "\n\n# Enter your message. C-c C-c to finish, C-c C-k to cancel\n"))
