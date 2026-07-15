@@ -20,6 +20,7 @@
 (require 'cl-lib)
 (require 'seq)
 (require 'subr-x)
+(require 'tramp)
 
 (defgroup jj nil
   "Interface to jj version control system."
@@ -821,12 +822,26 @@ This procedure produces valid graph rendering"
                 (when (not (string-empty-p line))
                   (font-lock-append-text-property line-start (1+ line-start) 'font-lock-face 'fixed-pitch))))))))))
 
+(defun jj--log-buffer-name-for-root (repo-root)
+  "Generate a jj-log buffer name for REPO-ROOT.
+Includes the host if REPO-ROOT is a TRAMP path."
+  (let ((dir-name (file-name-nondirectory (directory-file-name repo-root))))
+    (if-let ((tramp (and (file-remote-p repo-root)
+                         (tramp-dissect-file-name repo-root))))
+        (let* ((tramp-user (tramp-file-name-user tramp))
+               (tramp-host (tramp-file-name-host tramp))
+               (user-part (if tramp-user (format "%s@" tramp-user) "")))
+          ;; If it's a TRAMP path, use "user@host:dir" format
+          (format "*jj-log:%s%s:%s*" user-part tramp-host dir-name))
+      ;; Otherwise, use the local format
+      (format "*jj-log:%s*" dir-name))))
+
 ;;;###autoload
 (cl-defun jj-log (&key revset expand-entries)
   "Display jj log in a magit-style buffer."
   (interactive)
   (let* ((repo-root (jj--root))
-         (buffer-name (format "*jj-log:%s*" (file-name-nondirectory (directory-file-name repo-root))))
+         (buffer-name (jj--log-buffer-name-for-root repo-root))
          (buffer (get-buffer-create buffer-name)))
     (with-current-buffer buffer
       (let ((inhibit-read-only t)
