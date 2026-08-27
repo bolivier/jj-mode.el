@@ -170,7 +170,7 @@ The function must accept one argument: the buffer to display."
     map)
   "Keymap for `jj-mode'.")
 
-;;;###autoload
+;;;###autoload (autoload 'jj-mode-transient "jj-mode" nil t)
 (transient-define-prefix jj-mode-transient ()
   "JJ commands transient menu."
   [:description "JJ Commands" :class transient-columns
