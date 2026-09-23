@@ -790,6 +790,17 @@ Each call to process-file pops the next value.  EXIT-CODE is constant."
       (let ((args (jj-test--get-last-command-args)))
         (should (member "undo" args))))))
 
+(ert-deftest jj-test-workspace-update-stale/basic ()
+  "jj-workspace-update-stale calls workspace update-stale and refreshes."
+  (jj-test-with-mock-commands "" 0
+    (let ((refreshed nil))
+      (cl-letf (((symbol-function 'jj-log-refresh) (lambda (&rest _) (setq refreshed t))))
+        (jj-workspace-update-stale)
+        (let ((args (jj-test--get-last-command-args)))
+          (should (member "workspace" args))
+          (should (member "update-stale" args)))
+        (should refreshed)))))
+
 (ert-deftest jj-test-abandon/basic ()
   "jj-abandon calls abandon with -r and changeset."
   (jj-test-with-mock-commands "" 0
