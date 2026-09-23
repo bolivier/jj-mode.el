@@ -575,6 +575,61 @@ Each call to process-file pops the next value.  EXIT-CODE is constant."
         (should (member "--dry-run" args))))))
 
 ;;; ============================================================
+;;; Arg Construction Tests — jj-git-push-change-at-point
+;;; ============================================================
+
+(ert-deftest jj-test-git-push-change-at-point/basic ()
+  "Basic push change at point with no flags."
+  (jj-test-with-mock-commands "" 0
+    (cl-letf (((symbol-function 'jj-log-refresh) #'ignore)
+              ((symbol-function 'jj-get-changeset-at-point)
+               (cl-constantly "klmnopqrstuv")))
+      (jj-git-push-change-at-point '())
+      (let ((args (jj-test--get-last-command-args)))
+        (should (member "git" args))
+        (should (member "push" args))
+        (should (member "--change" args))
+        (should (member "klmnopqrstuv" args))))))
+
+(ert-deftest jj-test-git-push-change-at-point/change-option ()
+  "Push change at point with a --change= arg."
+  (jj-test-with-mock-commands "" 0
+    (cl-letf (((symbol-function 'jj-log-refresh) #'ignore)
+              ((symbol-function 'jj-get-changeset-at-point)
+               (cl-constantly "klmnopqrstuv")))
+      (jj-git-push-change-at-point '("--change=wxyz"))
+      (let ((args (jj-test--get-last-command-args)))
+        (should (member "git" args))
+        (should (member "push" args))
+        (should (member "--change" args))
+        (should (member "klmnopqrstuv" args))
+        (should-not (member "wxyz" args))))))
+
+(ert-deftest jj-test-git-push-change-at-point/other-option ()
+  "Push change at point with a non-change arg."
+  (jj-test-with-mock-commands "" 0
+    (cl-letf (((symbol-function 'jj-log-refresh) #'ignore)
+              ((symbol-function 'jj-get-changeset-at-point)
+               (cl-constantly "klmnopqrstuv")))
+      (jj-git-push-change-at-point '("--remote=origin"))
+      (let ((args (jj-test--get-last-command-args)))
+        (should (member "git" args))
+        (should (member "push" args))
+        (should (member "--change" args))
+        (should (member "klmnopqrstuv" args))
+        (should (member "--remote" args))
+        (should (member "origin" args))))))
+
+(ert-deftest jj-test-git-push-change-at-point/no-change-at-point ()
+  "Push change at point errors when no change is available."
+  (jj-test-with-mock-commands "" 0
+    (cl-letf (((symbol-function 'jj-get-changeset-at-point)
+               (cl-constantly nil)))
+      (should-error (jj-git-push-change-at-point '("--remote=origin"))
+                    :type 'user-error)
+      (should (= (jj-test--command-count) 0)))))
+
+;;; ============================================================
 ;;; Arg Construction Tests — jj-git-fetch
 ;;; ============================================================
 
