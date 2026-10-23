@@ -998,16 +998,17 @@ Includes the host if REPO-ROOT is a TRAMP path."
           (when mode
             (funcall mode)))))
 
-    ;; Set up cleanup
-    (add-hook 'ediff-quit-hook
-              `(lambda ()
-                 (when (file-exists-p ,parent-temp-file)
-                   (delete-file ,parent-temp-file))
-                 (jj-log-refresh))
-              nil t)
-
-    ;; Start ediff session
-    (ediff-files parent-temp-file full-file-path)
+    ;; Start ediff session, pass in cleanup hook
+    (ediff-files parent-temp-file full-file-path
+                 (list (lambda ()
+                         (add-hook 'ediff-quit-hook
+                                   (lambda ()
+                                     (when-let ((buffer (get-file-buffer parent-temp-file)))
+                                       (kill-buffer buffer))
+                                     (when (file-exists-p parent-temp-file)
+                                       (delete-file parent-temp-file))
+                                     (jj-log-refresh))
+                                   nil t))))
     (message "Ediff: Left=Parent (@-), Right=Current (@). Edit right side, then 'q' to quit and save.")))
 
 (defun jj-diffedit-smerge ()
