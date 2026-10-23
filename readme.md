@@ -84,6 +84,7 @@ buffer (`*jj-log:project-name*`).
 - `d` - Describe changeset at point (opens message buffer)
 - `e` - Edit changeset (jj edit)
 - `u` - Undo last operation
+- `W` - Update stale workspace (jj workspace update-stale)
 - `s` - Squash
 - `N` - New changeset here
   - `n` create new changeset with options

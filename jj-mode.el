@@ -155,6 +155,7 @@ The function must accept one argument: the buffer to display."
     (define-key map (kbd "c") 'jj-commit)
     (define-key map (kbd "d") 'jj-describe)
     (define-key map (kbd "a") 'jj-abandon)
+    (define-key map (kbd "W") 'jj-workspace-update-stale)
 
     ;; Advanced Operations
     (define-key map (kbd "RET") 'jj-enter-dwim)
@@ -185,7 +186,8 @@ The function must accept one argument: the buffer to display."
                  ("a" "Abandon changeset" jj-abandon)
                  ("d" "Describe changeset" jj-describe)
                  ("s" "Squash changeset" jj-squash-transient)
-                 ("S" "Squash into parent" jj-squash-into-parent)]
+                 ("S" "Squash into parent" jj-squash-into-parent)
+                 ("W" "Update stale workspace" jj-workspace-update-stale)]
                 ["Advanced Operations"
                  ("r" "Rebase changeset" jj-rebase-transient)
                  ("b" "Bookmark operations" jj-bookmark-transient)
@@ -1576,6 +1578,16 @@ ARGS can be transient related infix, for example
            (list "undo") result
            "Undid last change"
            "Undo failed")
+      (jj-log-refresh))))
+
+(defun jj-workspace-update-stale ()
+  "Update a stale working copy with `jj workspace update-stale'."
+  (interactive)
+  (let ((result (jj--run-command "workspace" "update-stale")))
+    (when (jj--handle-command-result
+           (list "workspace" "update-stale") result
+           "Working copy updated"
+           "Failed to update stale working copy")
       (jj-log-refresh))))
 
 (defun jj-abandon ()
